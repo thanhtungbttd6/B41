@@ -59,42 +59,37 @@ class MainGui(QWidget):
         super().__init__()
         self.config = config
         self.setupUi()
-        self._apply_labels()
 
     def setupUi(self):
-        # --- BẮT ĐẦU VÙNG TINH CHỈNH: TÍNH TOÁN TỶ LỆ GIAO DIỆN ---
         screen = QApplication.primaryScreen().availableGeometry()
         screen_height = screen.height()
         self.scale_factor = screen_height / 1080.0
 
-        def scale_size(base_size):
-            return max(1, int(base_size * self.scale_factor))
-
-        def scale_font(base_size):
-            return max(9, int(base_size * self.scale_factor))
+        def scale_size(base_size): return max(1, int(base_size * self.scale_factor))
+        def scale_font(base_size): return max(9, int(base_size * self.scale_factor))
 
         self.setStyleSheet(f"""
-            QWidget {{ background-color: #2c3e50; color: #ecf0f1; font-family: 'Segoe UI'; }}
-            QFrame#panel {{ background-color: #34495e; border-radius: {scale_size(12)}px; border: 1px solid #4a6278; }}
-            QLabel#title {{ color: #ecf0f1; padding: {scale_size(10)}px; }}
-            QLabel.panel-title {{ font-size: {scale_font(16)}px; font-weight: bold; color: #ecf0f1; padding: {scale_size(8)}px {scale_size(15)}px; background-color: #415a72; border-radius: {scale_size(6)}px; }}
-            QPushButton {{ background-color: #1abc9c; color: white; font-size: {scale_font(14)}px; font-weight: bold; border: none; padding: {scale_size(10)}px {scale_size(20)}px; border-radius: {scale_size(8)}px; }}
-            QPushButton:hover {{ background-color: #16a085; }}
-            QPushButton#danger {{ background-color: #e74c3c; }}
-            QPushButton#danger:hover {{ background-color: #c0392b; }}
-            QPushButton:disabled {{ background-color: #7f8c8d; }}
-            QSlider::groove:horizontal {{ border: 1px solid #2c3e50; height: {scale_size(4)}px; background: #2c3e50; margin: {scale_size(2)}px 0; border-radius: {scale_size(2)}px; }}
-            QSlider::handle:horizontal {{ background: #1abc9c; border: 1px solid #1abc9c; width: {scale_size(18)}px; margin: -{scale_size(7)}px 0; border-radius: {scale_size(9)}px; }}
-            VideoLabel {{ background-color: #212f3d; border: 1px solid #4a6278; border-radius: {scale_size(8)}px; color: #95a5a6; font-size: {scale_font(24)}px; }}
+            QWidget {{ background-color: #f8fafc; color: #1e293b; font-family: 'Segoe UI'; }}
+            QFrame#panel {{ background-color: #ffffff; border-radius: {scale_size(12)}px; border: 1px solid #e2e8f0; }}
+            QLabel#title {{ color: #1e293b; padding: {scale_size(10)}px; }}
+            QLabel.panel-title {{ font-size: {scale_font(16)}px; font-weight: bold; color: #ffffff; padding: {scale_size(8)}px {scale_size(15)}px; background-color: #0ea5e9; border-radius: {scale_size(6)}px; }}
+            QPushButton {{ background-color: #0ea5e9; color: white; font-size: {scale_font(14)}px; font-weight: bold; border: none; padding: {scale_size(10)}px {scale_size(20)}px; border-radius: {scale_size(8)}px; }}
+            QPushButton:hover {{ background-color: #0284c7; }}
+            QPushButton#danger {{ background-color: #ef4444; }}
+            QPushButton#danger:hover {{ background-color: #dc2626; }}
+            QPushButton:disabled {{ background-color: #cbd5e1; }}
+            QSlider::groove:horizontal {{ border: 1px solid #e2e8f0; height: {scale_size(4)}px; background: #e2e8f0; margin: {scale_size(2)}px 0; border-radius: {scale_size(2)}px; }}
+            QSlider::handle:horizontal {{ background: #0ea5e9; border: 1px solid #0ea5e9; width: {scale_size(18)}px; margin: -{scale_size(7)}px 0; border-radius: {scale_size(9)}px; }}
+            VideoLabel {{ background-color: #e2e8f0; border: 1px solid #cbd5e1; border-radius: {scale_size(8)}px; color: #64748b; font-size: {scale_font(24)}px; }}
             #controlsPanel {{ padding: {scale_size(10)}px; }}
-            #zoomValueLabel {{ font-size: {scale_font(13)}px; font-weight: bold; color: #1abc9c; min-width: {scale_size(45)}px; }}
-            QComboBox {{ border: 1px solid #4a6278; border-radius: {scale_size(4)}px; padding: {scale_size(5)}px; background-color: #5d6d7e; min-width: {scale_size(120)}px; }}
+            #zoomValueLabel {{ font-size: {scale_font(13)}px; font-weight: bold; color: #0ea5e9; min-width: {scale_size(45)}px; }}
+            QComboBox {{ border: 1px solid #cbd5e1; border-radius: {scale_size(4)}px; padding: {scale_size(5)}px; background-color: #ffffff; color: #1e293b; min-width: {scale_size(120)}px; }}
             QComboBox::drop-down {{ border: none; }}
-            QComboBox QAbstractItemView {{ background-color: #5d6d7e; color: #ecf0f1; }}
-            #refreshButton {{ background-color: #5d6d7e; border: 1px solid #4a6278; padding: {scale_size(5)}px {scale_size(10)}px; border-radius: {scale_size(4)}px; min-width: {scale_size(30)}px; }}
-            #refreshButton:hover {{ background-color: #718090; }}
-            QGroupBox {{ font-size: {scale_font(14)}px; font-weight: bold; border: 1px solid #4a6278; border-radius: {scale_size(8)}px; margin-top: {scale_size(10)}px; }}
-            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top center; padding: {scale_size(2)}px {scale_size(8)}px; background-color: #415a72; border-radius: {scale_size(4)}px; }}
+            QComboBox QAbstractItemView {{ background-color: #ffffff; color: #1e293b; selection-background-color: #0ea5e9; }}
+            #refreshButton {{ background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: {scale_size(5)}px {scale_size(10)}px; border-radius: {scale_size(4)}px; min-width: {scale_size(30)}px; color: #1e293b; }}
+            #refreshButton:hover {{ background-color: #e2e8f0; }}
+            QGroupBox {{ font-size: {scale_font(14)}px; font-weight: bold; border: 1px solid #cbd5e1; border-radius: {scale_size(8)}px; margin-top: {scale_size(10)}px; color: #1e293b; }}
+            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top center; padding: {scale_size(2)}px {scale_size(8)}px; background-color: #f1f5f9; color: #0ea5e9; border-radius: {scale_size(4)}px; border: 1px solid #cbd5e1; }}
         """)
 
         margin = scale_size(20)
@@ -113,23 +108,17 @@ class MainGui(QWidget):
 
         columns_layout = QHBoxLayout()
         columns_layout.setSpacing(scale_size(20))
-        # --- KẾT THÚC VÙNG TINH CHỈNH ---
         
         columns_layout.addWidget(self._create_camera_column(), 6)
         columns_layout.addWidget(self._create_right_column(), 4)
         root_layout.addLayout(columns_layout)
-
-    def _apply_labels(self):
-        labels = self.config.get("labels", {})
-        trainee_label_text = labels.get("trainee", "Người học")
-        self.soldier_select_label.setText(f"{trainee_label_text}:")
 
     def _create_styled_panel(self) -> QFrame:
         panel = QFrame()
         panel.setObjectName("panel")
         shadow_effect = QGraphicsDropShadowEffect(panel)
         shadow_effect.setBlurRadius(int(20 * self.scale_factor))
-        shadow_effect.setColor(QColor(0, 0, 0, 80))
+        shadow_effect.setColor(QColor(0, 0, 0, 30)) # Shadow nhạt đi cho Light Theme
         shadow_effect.setOffset(0, int(5 * self.scale_factor))
         panel.setGraphicsEffect(shadow_effect)
         return panel
@@ -141,7 +130,6 @@ class MainGui(QWidget):
         main_layout.setContentsMargins(margin, margin, margin, margin)
         main_layout.setSpacing(margin)
 
-        # --- Title ---
         title_widget = QWidget()
         title_layout = QHBoxLayout(title_widget)
         title_layout.setContentsMargins(0, 0, 0, 0)
@@ -154,32 +142,24 @@ class MainGui(QWidget):
         title_layout.addStretch(1)
         main_layout.addWidget(title_widget)
 
-        # --- Video View ---
         self.camera_view_label = VideoLabel()
         self.camera_view_label.setText("Vui lòng kết nối camera")
         main_layout.addWidget(self.camera_view_label, 1)
 
-        # --- Controls Panel ---
         controls_panel = QWidget()
         controls_layout = QHBoxLayout(controls_panel)
-        # Tinh chỉnh padding để các nút không bị dính
         controls_layout.setContentsMargins(int(5*self.scale_factor), int(5*self.scale_factor), int(5*self.scale_factor), 0)
         controls_layout.setSpacing(int(10 * self.scale_factor))
         
-        # 1. Selector chọn Camera (MỚI THÊM)
         self.camera_selector = QComboBox()
         self.camera_selector.setPlaceholderText("Chọn Camera...")
         self.camera_selector.setMinimumWidth(int(150 * self.scale_factor))
         controls_layout.addWidget(self.camera_selector)
 
-        # 2. Nút Refresh
         self.refresh_button = QPushButton("Làm mới")
         self.refresh_button.setObjectName("refreshButton")
-        # Đặt icon hoặc ký tự refresh nếu muốn gọn hơn
-        self.refresh_button.setToolTip("Quét lại danh sách thiết bị")
         controls_layout.addWidget(self.refresh_button)
 
-        # 3. Zoom Slider
         controls_layout.addStretch(1)
         zoom_text_label = QLabel("Khoảng cách:")
         self.zoom_slider = QSlider(Qt.Horizontal)
@@ -194,7 +174,6 @@ class MainGui(QWidget):
         controls_layout.addWidget(self.zoom_value_label)
         controls_layout.addStretch(1)
 
-        # 4. Calibrate Button
         self.calibrate_button = QPushButton("Hiệu chỉnh tâm")
         controls_layout.addWidget(self.calibrate_button)
         
@@ -214,32 +193,13 @@ class MainGui(QWidget):
         layout.setContentsMargins(margin, margin, margin, margin)
         layout.setSpacing(margin)
 
-        # --- Session Box ---
-        session_box = QGroupBox("Quản lý Lần bắn")
-        session_layout = QVBoxLayout(session_box)
-        soldier_select_layout = QHBoxLayout()
-        self.soldier_select_label = QLabel()
-        self.soldier_selector = QComboBox()
-        soldier_select_layout.addWidget(self.soldier_select_label)
-        soldier_select_layout.addWidget(self.soldier_selector, 1)
-        session_layout.addLayout(soldier_select_layout)
-        
-        session_buttons_layout = QHBoxLayout()
-        self.session_button = QPushButton("Bắt đầu")
-        self.back_button = QPushButton("Về Menu")
-        self.back_button.setObjectName("danger")
-        session_buttons_layout.addWidget(self.session_button)
-        session_buttons_layout.addWidget(self.back_button)
-        session_layout.addLayout(session_buttons_layout)
-
-        # --- Result Box ---
-        result_box = QGroupBox("Kết quả mới nhất")
+        result_box = QGroupBox("Kết quả bắn")
         result_layout = QVBoxLayout(result_box)
         font_info = QFont('Segoe UI', max(9, int(12 * self.scale_factor)))
         
         self.time_label = QLabel("Thời gian: --:--:--")
         self.target_name_label = QLabel("Tên mục tiêu: --")
-        self.score_label = QLabel("Điểm số: --")
+        self.score_label = QLabel("Kết quả: --")
         
         for label in [self.time_label, self.target_name_label, self.score_label]:
             label.setFont(font_info)
@@ -252,10 +212,11 @@ class MainGui(QWidget):
         self.result_image_label = VideoLabel()
         result_layout.addWidget(self.result_image_label, 1)
 
-        # --- BẮT ĐẦU VÙNG TINH CHỈNH: ÁP DỤNG TỶ LỆ 3:7 ---
-        layout.addWidget(session_box, 3) # Stretch factor = 3
-        layout.addWidget(result_box, 7)  # Stretch factor = 7
-        # --- KẾT THÚC VÙNG TINH CHỈNH ---
+        layout.addWidget(result_box, 1)
+
+        self.back_button = QPushButton("Về Menu Chính")
+        self.back_button.setObjectName("danger")
+        layout.addWidget(self.back_button)
         
         return panel
 
@@ -279,11 +240,11 @@ class MainGui(QWidget):
     def update_results(self, time_str, target_name, score, result_frame):
         self.time_label.setText(f"Thời gian: {time_str}")
         self.target_name_label.setText(f"Tên mục tiêu: {target_name}")
-        self.score_label.setText(f"Điểm số: {score}")
+        self.score_label.setText(f"Kết quả: {score}")
         pixmap = self._convert_cv_to_pixmap(result_frame)
         if pixmap.isNull():
             self.result_image_label.setText("Không có ảnh kết quả")
-            self.result_image_label.setPixmap(QPixmap()) # Clear old pixmap
+            self.result_image_label.setPixmap(QPixmap())
         else:
-            self.result_image_label.setText("") # Clear text
+            self.result_image_label.setText("") 
             self.result_image_label.setPixmap(pixmap)

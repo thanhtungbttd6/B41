@@ -21,20 +21,17 @@ class AudioManager:
             self.sounds = None
 
     def _load_sounds(self):
-        """Tải các file âm thanh cần thiết: shot, miss, và scores 1-10."""
+        """Tải các file âm thanh cần thiết."""
         if self.sounds is None: return
         logger.info("Đang tải các file âm thanh...")
         
         sounds_dir = resource_path(os.path.join("assets", "sounds"))
 
-        # Danh sách các âm thanh cần tải
-        sound_names = ['shot', 'miss']
-        for i in range(1, 11): # Điểm từ 1 đến 10
-            sound_names.append(f"score_{i}")
-
+        # Load các file cứng: shot, miss, hit
+        sound_names = ['shot', 'miss', 'hit']
+        
         for name in sound_names:
-            # Chuyển đổi tên logic (ví dụ: 'score_10') thành tên file (ví dụ: '10.mp3')
-            file_name = name.replace('score_', '') + '.mp3'
+            file_name = f"{name}.mp3"
             sound_path = os.path.join(sounds_dir, file_name)
             
             if os.path.exists(sound_path):
@@ -54,9 +51,15 @@ class AudioManager:
         else:
             logger.warning(f"Không tìm thấy âm thanh có tên: '{name}'")
             
-    def play_score(self, score: int):
-        """Hàm tiện ích để phát âm thanh cho một điểm số cụ thể."""
-        if isinstance(score, int) and 1 <= score <= 10:
-            self.play_sound(f"score_{score}")
-        else:
-            logger.warning(f"Điểm số không hợp lệ để phát âm thanh: {score}")
+    # Thêm các hàm hỗ trợ logic Trúng/Trượt trực tiếp
+    def play_hit(self):
+        """Phát tiếng báo Trúng."""
+        self.play_sound('hit')
+
+    def play_miss(self):
+        """Phát tiếng báo Trượt."""
+        self.play_sound('miss')
+
+    def play_shot(self):
+        """Phát tiếng Nổ súng."""
+        self.play_sound('shot')

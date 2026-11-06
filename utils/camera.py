@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 def _get_os_backend():
     """Lấy backend camera phù hợp với hệ điều hành để tăng tốc độ quét."""
     if sys.platform == "win32":
-        return cv2.CAP_DSHOW
+        # SỬA LỖI: Chuyển từ DSHOW sang MSMF để tránh lỗi "can't be used to capture by index" trên laptop
+        return cv2.CAP_MSMF 
     if sys.platform == "darwin":
         return cv2.CAP_AVFOUNDATION
     return cv2.CAP_ANY
@@ -48,10 +49,12 @@ def find_available_cameras(max_cameras_to_check=5) -> list[int]:
     logger.info("CAMERA: Bắt đầu quét các camera...")
     available_cameras = []
     api_preference = _get_os_backend()
+    
     for i in range(max_cameras_to_check):
         cap = cv2.VideoCapture(i, api_preference)
         if cap.isOpened():
             available_cameras.append(i)
             cap.release()
+            
     logger.info(f"CAMERA: Các camera tìm thấy: {available_cameras}")
     return available_cameras

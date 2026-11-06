@@ -30,13 +30,51 @@ def check_object_center(detections, image, calibrated_center):
             'crop': image[y1:y2, x1:x2].copy(),
             'shot_point_relative': (center_x - x1, center_y - y1),
             'shot_point_absolute': (center_x, center_y), # Đảm bảo trả về tọa độ tuyệt đối
-            'conf': highest_conf_hit['conf']
+            'conf': highest_conf_hit['conf'],
+            'box': (x1, y1, x2, y2) # Cần truyền box để tách màu
         }
-        print(f"✅ TRÚNG | Mục tiêu: {hit_info['name']} (Conf: {hit_info['conf']:.2f})")
-        return "TRÚNG", hit_info
+        print(f"✅ BIA NHẬN DIỆN: {hit_info['name']} (Conf: {hit_info['conf']:.2f})")
+        return "BIA_NHAN_DIEN", hit_info
     
     print("❌ TRƯỢT | Tâm ngắm không nằm trong bất kỳ mục tiêu nào.")
     return "TRƯỢT", {'shot_point': (center_x, center_y)}
+
+def calculate_hit_result_by_color(frame: np.ndarray, target_box: Tuple[int, int, int, int], aim_point: Tuple[float, float]) -> str:
+    """
+    Xác định kết quả Trúng/Trượt dựa trên nhận diện vùng màu đen thực tế của bia.
+    """
+    x_min, y_min, x_max, y_max = [int(v) for v in target_box]
+    hit_x, hit_y = int(aim_point[0]), int(aim_point[1])
+
+    if not (x_min <= hit_x <= x_max and y_min <= hit_y <= y_max):
+        return "Trượt"
+
+    roi = frame[y_min:y_max, x_min:x_max]
+    if roi.size == 0:
+        return "Trượt"
+
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    
+    # Tách ngưỡng nhị phân để lọc màu đen (Đen thành Trắng 255, Trắng thành Đen 0)
+    _, thresh = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY_INV)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        return "Trượt" 
+
+    largest_contour = max(contours, key=cv2.contourArea)
+    bx, by, bw, bh = cv2.boundingRect(largest_contour)
+
+    black_x_min = x_min + bx
+    black_y_min = y_min + by
+    black_x_max = black_x_min + bw
+    black_y_max = black_y_min + bh
+
+    if (black_x_min <= hit_x <= black_x_max) and (black_y_min <= hit_y <= black_y_max):
+        return "Trúng"
+    
+    return "Trượt"
 
 def warp_crop_to_original(
     original_img: np.ndarray,
@@ -100,106 +138,3 @@ def warp_crop_to_original(
     print("[warp_crop_to_original] Warp ảnh thành công")
     warped = cv2.warpPerspective(obj_crop, H, (original_img.shape[1], original_img.shape[0]), flags=cv2.INTER_LINEAR)
     return warped, transformed_point
-
-#tính điểm bia 8
-def calculate_score_bia8(pt: Tuple[float, float], original_img: np.ndarray, mask: np.ndarray) -> int:
-    """
-    Tính điểm cho bia số 8 dựa trên các vòng elip.
-    """
-    if pt is None or mask is None or original_img is None:
-        return 0
-
-    x, y = int(pt[0]), int(pt[1])
-    # Lấy kích thước từ ảnh gốc thay vì ảnh mask để đảm bảo chính xác
-    h, w = original_img.shape[:2]
-
-    if not (0 <= y < h and 0 <= x < w) or mask[y, x] == 0:
-        return 0
-
-    center_x, center_y = 87, 116
-
-    ellipse_rings = [
-        {'score': 10, 'width': 42,  'height': 63},
-        {'score': 9,  'width': 84, 'height': 126},
-        {'score': 8,  'width': 126, 'height': 190},
-        {'score': 7,  'width': 172, 'height': 258},
-        {'score': 6,  'width': 216, 'height': 324},
-        {'score': 5,  'width': 260, 'height': 324},
-        {'score': 4,  'width': 304, 'height': 456},
-        {'score': 3,  'width': 348, 'height': 522},
-        {'score': 2,  'width': 392, 'height': 588},
-        {'score': 1,  'width': 436, 'height': 654}
-    ]
-
-    for ring in ellipse_rings:
-        a = ring['width'] / 2.0
-        b = ring['height'] / 2.0
-        if a > 0 and b > 0:
-            check = ((x - center_x)**2 / a**2) + ((y - center_y)**2 / b**2)
-            if check <= 1:
-                return ring['score']
-    
-    return 0
-
-#tính điểm bia 7
-def calculate_score_bia7(pt: Tuple[float, float], original_img: np.ndarray, mask: np.ndarray) -> int:
-    """
-    Tính điểm cho bia số 7 dựa trên các vòng elip.
-    """
-    if pt is None or mask is None or original_img is None:
-        return 0
-
-    x, y = int(pt[0]), int(pt[1])
-    # Lấy kích thước từ ảnh gốc thay vì ảnh mask để đảm bảo chính xác
-    h, w = original_img.shape[:2]
-
-    if not (0 <= y < h and 0 <= x < w) or mask[y, x] == 0:
-        return 0
-
-    center_x, center_y = 136, 177
-
-    ellipse_rings = [
-        {'score': 10, 'width': 63,  'height': 95},
-        {'score': 9,  'width': 126, 'height': 190},
-        {'score': 8,  'width': 189, 'height': 284},
-        {'score': 7,  'width': 252, 'height': 378},
-        {'score': 6,  'width': 309, 'height': 464},
-        {'score': 5,  'width': 375, 'height': 562},
-        {'score': 4,  'width': 436, 'height': 654},
-        {'score': 3,  'width': 497, 'height': 746},
-        {'score': 2,  'width': 557, 'height': 836},
-        {'score': 1,  'width': 613, 'height': 920}
-    ]
-
-    for ring in ellipse_rings:
-        a = ring['width'] / 2.0
-        b = ring['height'] / 2.0
-        if a > 0 and b > 0:
-            check = ((x - center_x)**2 / a**2) + ((y - center_y)**2 / b**2)
-            if check <= 1:
-                return ring['score']
-    
-    return 0
-
-#tính điểm bia số 4
-def calculate_score_bia4(pt: Tuple[float, float], original_img: np.ndarray, mask: np.ndarray) -> int:
-    if original_img is None or mask is None or pt is None:
-        return 0
-    x, y = int(pt[0]), int(pt[1])
-    h, w = original_img.shape[:2]
-    if not (0 <= x < w and 0 <= y < h):
-        return 0
-
-    center_x, center_y = w // 2, h // 2
-    distance = ((x - center_x) ** 2 + (y - center_y) ** 2) ** 0.5
-    
-    # Kiểm tra xem điểm chạm có nằm trong vùng hợp lệ của bia không
-    if mask[y, x] == 255:
-        if distance < 56: return 10
-        elif distance < 116: return 9
-        elif distance < 173: return 8
-        elif distance < 230: return 7
-        elif distance < 285: return 6
-        elif distance < 320: return 5
-    
-    return 0

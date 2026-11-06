@@ -1,7 +1,7 @@
 {
     "camera_index": 0,
-    "yolo_model_name": "my_modelv8m.pt",
-    "yolo_confidence_threshold": 0.75,
+    "yolo_model_name": "my_modelB41.pt",
+    "yolo_confidence_threshold": 0.25,
     "labels": {
         "customer_unit_name": "TÊN ĐƠN VỊ KHÁCH HÀNG",
         "app_title": "PHẦN MỀM KIỂM TRA ĐƯỜNG NGẮM",

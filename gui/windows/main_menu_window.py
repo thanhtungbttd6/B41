@@ -20,7 +20,7 @@ class MainMenuWindow(QMainWindow):
         self._load_logos()
 
         self.practice_button = self.ui.practice_button
-        self.stats_button = self.ui.stats_button
+        # Đã xóa self.stats_button
         self.exit_button = self.ui.exit_button
         
     def _apply_labels(self):
@@ -38,9 +38,6 @@ class MainMenuWindow(QMainWindow):
         self.ui.footer_label.setText(footer_text)
 
     def _load_logos(self):
-        """
-        Nạp logo, tự động tìm kiếm đường dẫn và scale ảnh giữ tỷ lệ.
-        """
         labels_config = self.config.get("labels", {})
         
         left_path_raw = self.config.get("logo_left") or labels_config.get("logo_left")
@@ -72,11 +69,7 @@ class MainMenuWindow(QMainWindow):
             if final_path:
                 pixmap = QPixmap(final_path)
                 if not pixmap.isNull():
-                    # --- XỬ LÝ SCALE ẢNH GIỮ TỶ LỆ ---
-                    # Lấy kích thước khung chứa (đã được scale theo màn hình trong UI)
                     target_size = label_widget.size() 
-                    
-                    # Scale pixmap theo kích thước khung, giữ tỷ lệ, và làm mượt ảnh
                     scaled_pixmap = pixmap.scaled(
                         target_size, 
                         Qt.KeepAspectRatio, 
