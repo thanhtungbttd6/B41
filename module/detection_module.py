@@ -2,6 +2,7 @@
 
 from ultralytics import YOLO
 
+
 class ObjectDetector:
     def __init__(self, model_path="my_modelB41.pt"):
         """
@@ -31,8 +32,10 @@ class ObjectDetector:
             return []
 
         detections = []
-        results = self.model(image, conf=conf,imgsz=320, verbose=False) # verbose=False để log gọn hơn
-        
+        results = self.model(
+            image, conf=conf, imgsz=320, verbose=False
+        )  # verbose=False để log gọn hơn
+
         if results and results[0].boxes:
             res = results[0]
             boxes_xyxy = res.boxes.xyxy.cpu().numpy()
@@ -41,10 +44,12 @@ class ObjectDetector:
 
             for box, conf, cls_id in zip(boxes_xyxy, confs, class_ids):
                 class_name = self.model.names[int(cls_id)]
-                detections.append({
-                    'box': [int(coord) for coord in box],
-                    'conf': float(conf),
-                    'class_name': class_name
-                })
-        
+                detections.append(
+                    {
+                        "box": [int(coord) for coord in box],
+                        "conf": float(conf),
+                        "class_name": class_name,
+                    }
+                )
+
         return detections

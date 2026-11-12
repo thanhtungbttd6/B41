@@ -1,9 +1,10 @@
 # file: utils/resource_path.py
-import sys
 import os
+import sys
+
 
 def resource_path(relative_path: str) -> str:
-    """ 
+    """
     Lấy đường dẫn tuyệt đối tới tài nguyên, hoạt động cho cả môi trường dev và khi đã đóng gói bằng PyInstaller.
     """
     try:

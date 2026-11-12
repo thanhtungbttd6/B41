@@ -1,28 +1,33 @@
 # file: gui/windows/practice_window.py
 
 import logging
-from PySide6.QtWidgets import QMainWindow, QApplication, QMessageBox
-from PySide6.QtCore import QTimer, Signal, QThread, Slot, QPoint
-import cv2
-import numpy as np
 import os
 import time
-from config import APP_DATA_DIR
 from datetime import datetime
-from PySide6.QtGui import QScreen, QPixmap
 
-from ..ui.ui_practice import MainGui
-from utils.audio import AudioManager
-from utils.camera import find_available_cameras, Camera
+import cv2
+import numpy as np
+from PySide6.QtCore import QPoint, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import QPixmap, QScreen
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+
+from config import APP_DATA_DIR
 from core.triggers import BluetoothTrigger
 from core.worker import ProcessingWorker
+from utils.audio import AudioManager
+from utils.camera import Camera, find_available_cameras
+
+from ..ui.ui_practice import MainGui
 
 logger = logging.getLogger(__name__)
+
 
 class PracticeWindow(QMainWindow):
     request_processing = Signal(np.ndarray, object, str)
 
-    def __init__(self, worker: ProcessingWorker, trigger: BluetoothTrigger, config: dict):
+    def __init__(
+        self, worker: ProcessingWorker, trigger: BluetoothTrigger, config: dict
+    ):
         super().__init__()
         self.config = config
         labels = self.config.get("labels", {})
@@ -30,10 +35,10 @@ class PracticeWindow(QMainWindow):
         self.setWindowTitle(app_title)
         screen = QScreen.availableGeometry(QApplication.primaryScreen())
         self.setGeometry(screen)
-        
+
         self.gui = MainGui(self.config)
         self.setCentralWidget(self.gui)
-        
+
         self.worker = worker
         self.bt_trigger = trigger
         self.cam = None
@@ -43,22 +48,22 @@ class PracticeWindow(QMainWindow):
         self.is_camera_connected = False
         self.frame_read_failures = 0
         self.FRAME_FAILURE_THRESHOLD = 3
-        
+
         self.clean_zoomed_frame_for_processing = None
         self.shot_point_on_zoomed_frame = None
-        
+
         self.audio_manager = AudioManager()
         self.video_timer = QTimer(self)
-        
+
         # --- KẾT NỐI TÍN HIỆU CAMERA ---
         self.video_timer.timeout.connect(self.update_frame)
         self.gui.calibrate_button.clicked.connect(self.toggle_calibration_mode)
         self.gui.zoom_slider.valueChanged.connect(self.on_zoom_changed)
-        
+
         self.gui.camera_selector.currentIndexChanged.connect(self.on_camera_selected)
         self.gui.refresh_button.clicked.connect(self.refresh_camera_list)
         self.gui.camera_view_label.clicked.connect(self.set_new_center)
-        
+
         self.reset_ui_state()
 
         try:
@@ -67,16 +72,21 @@ class PracticeWindow(QMainWindow):
             self.configured_camera_index = 0
 
         # Ẩn các nút không còn sử dụng trên UI nếu chúng tồn tại
-        if hasattr(self.gui, 'session_button'):
+        if hasattr(self.gui, "session_button"):
             self.gui.session_button.hide()
-        if hasattr(self.gui, 'soldier_selector'):
+        if hasattr(self.gui, "soldier_selector"):
             self.gui.soldier_selector.hide()
 
     def on_camera_selected(self, index):
         cam_idx = self.gui.camera_selector.currentData()
         if cam_idx is None:
             return
-        if self.cam and hasattr(self.cam, 'index') and self.cam.index == cam_idx and self.cam.isOpened():
+        if (
+            self.cam
+            and hasattr(self.cam, "index")
+            and self.cam.index == cam_idx
+            and self.cam.isOpened()
+        ):
             return
         logger.info(f"Người dùng chọn chuyển sang Camera {cam_idx}")
         self.connect_camera(cam_idx)
@@ -86,16 +96,16 @@ class PracticeWindow(QMainWindow):
         logger.info("Đang làm mới danh sách camera...")
         self.gui.camera_selector.blockSignals(True)
         self.gui.camera_selector.clear()
-        
+
         available_indexes = find_available_cameras()
-        
+
         if not available_indexes:
             self.gui.camera_selector.addItem("Không tìm thấy Camera", None)
             self.disconnect_camera("Không tìm thấy thiết bị nào")
         else:
             target_index = self.config.get("camera_index", 0)
-            best_match_index = 0 
-            
+            best_match_index = 0
+
             for i, cam_idx in enumerate(available_indexes):
                 display_name = f"Camera {cam_idx}"
                 self.gui.camera_selector.addItem(display_name, cam_idx)
@@ -116,10 +126,10 @@ class PracticeWindow(QMainWindow):
 
     def connect_camera(self, index):
         self.disconnect_camera()
-        
+
         logger.info(f"Đang thử kết nối camera index {index}...")
         self.cam = Camera(index)
-        
+
         if not self.cam.isOpened():
             logger.error(f"Lỗi driver camera {index}.")
             self.gui.clear_video_feed(f"Lỗi kết nối Camera {index}")
@@ -134,7 +144,7 @@ class PracticeWindow(QMainWindow):
                 break
             time.sleep(0.2)
             attempts += 1
-            
+
         if success:
             self.is_camera_connected = True
             self.video_timer.start(30)
@@ -160,7 +170,9 @@ class PracticeWindow(QMainWindow):
         if not ret or frame is None:
             self.frame_read_failures += 1
             if self.frame_read_failures > self.FRAME_FAILURE_THRESHOLD:
-                self.disconnect_camera("Mất kết nối với camera...\nVui lòng kiểm tra và nhấn 'Làm mới'.")
+                self.disconnect_camera(
+                    "Mất kết nối với camera...\nVui lòng kiểm tra và nhấn 'Làm mới'."
+                )
             return
 
         self.frame_read_failures = 0
@@ -168,9 +180,12 @@ class PracticeWindow(QMainWindow):
             self.is_camera_connected = True
 
         processed_frame = self.crop_and_resize_frame(frame)
-        if processed_frame is None: return
+        if processed_frame is None:
+            return
 
-        self.clean_zoomed_frame_for_processing = self.apply_digital_zoom(processed_frame, self.zoom_level)
+        self.clean_zoomed_frame_for_processing = self.apply_digital_zoom(
+            processed_frame, self.zoom_level
+        )
 
         point_to_draw = None
         h_orig, w_orig, _ = processed_frame.shape
@@ -180,7 +195,7 @@ class PracticeWindow(QMainWindow):
             cx, cy = self.calibrated_center
             start_x_on_orig = (w_orig - int(w_orig / self.zoom_level)) // 2
             start_y_on_orig = (h_orig - int(h_orig / self.zoom_level)) // 2
-            
+
             if cx >= start_x_on_orig and cy >= start_y_on_orig:
                 zoomed_cx = int((cx - start_x_on_orig) * self.zoom_level)
                 zoomed_cy = int((cy - start_y_on_orig) * self.zoom_level)
@@ -193,8 +208,15 @@ class PracticeWindow(QMainWindow):
 
         frame_to_display = self.clean_zoomed_frame_for_processing.copy()
         if self.shot_point_on_zoomed_frame:
-            cv2.drawMarker(frame_to_display, self.shot_point_on_zoomed_frame, (0, 0, 255), cv2.MARKER_CROSS, 15, 1)
-        
+            cv2.drawMarker(
+                frame_to_display,
+                self.shot_point_on_zoomed_frame,
+                (0, 0, 255),
+                cv2.MARKER_CROSS,
+                15,
+                1,
+            )
+
         self.gui.display_frame(frame_to_display)
 
     def capture_photo(self):
@@ -208,20 +230,22 @@ class PracticeWindow(QMainWindow):
             return
 
         shot_center_for_analysis = self.shot_point_on_zoomed_frame
-        
+
         # Tiếng nổ
         self.audio_manager.play_shot()
-        
+
         # SỬA LỖI: KHÔNG dùng _pixmap.toImage() nữa để tránh dính ảnh tâm đỏ.
         # Tạo thẳng mã Timestamp và truyền cho Worker tự xử lý việc lưu ảnh Dataset.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-        self.request_processing.emit(frame_for_analysis, shot_center_for_analysis, timestamp)
+        self.request_processing.emit(
+            frame_for_analysis, shot_center_for_analysis, timestamp
+        )
 
     @Slot(dict)
     def on_processing_finished(self, result):
-        display_target_name = result.get('target_name')
-        score = result.get('score', 0)
-        final_image_to_display = result.get('result_frame')
+        display_target_name = result.get("target_name")
+        score = result.get("score", 0)
+        final_image_to_display = result.get("result_frame")
 
         # XỬ LÝ KẾT QUẢ VÀ ÂM THANH
         if score == 1:
@@ -232,29 +256,35 @@ class PracticeWindow(QMainWindow):
             display_score_text = "TRƯỢT"
 
         self.gui.update_results(
-            time_str=result.get('time_str'),
+            time_str=result.get("time_str"),
             target_name=display_target_name,
             score=display_score_text,
-            result_frame=final_image_to_display
+            result_frame=final_image_to_display,
         )
 
     def shutdown_components(self):
         self.disconnect_camera()
-        if self.bt_trigger: self.bt_trigger.deactivate()
+        if self.bt_trigger:
+            self.bt_trigger.deactivate()
         self.reset_ui_state()
 
     def crop_and_resize_frame(self, frame):
-        h, w, _ = frame.shape; target_aspect_ratio = 3.0 / 4.0
-        new_w = int(h * target_aspect_ratio); start_x = (w - new_w) // 2 if w > new_w else 0
+        h, w, _ = frame.shape
+        target_aspect_ratio = 3.0 / 4.0
+        new_w = int(h * target_aspect_ratio)
+        start_x = (w - new_w) // 2 if w > new_w else 0
         cropped_frame = frame[:, start_x : start_x + new_w]
         return cv2.resize(cropped_frame, self.final_size, interpolation=cv2.INTER_AREA)
 
     def apply_digital_zoom(self, frame, zoom):
-        if frame is None or zoom <= 1.0: return frame
-        h, w, _ = frame.shape; crop_w, crop_h = int(w / zoom), int(h / zoom)
-        start_x, start_y = (w - crop_w) // 2, (h - crop_h) // 2; cropped = frame[start_y : start_y + crop_h, start_x : start_x + crop_w]
+        if frame is None or zoom <= 1.0:
+            return frame
+        h, w, _ = frame.shape
+        crop_w, crop_h = int(w / zoom), int(h / zoom)
+        start_x, start_y = (w - crop_w) // 2, (h - crop_h) // 2
+        cropped = frame[start_y : start_y + crop_h, start_x : start_x + crop_w]
         # =========================================================
-        # ĐÃ SỬA: Đổi INTER_LINEAR thành INTER_CUBIC để chống vỡ hạt 
+        # ĐÃ SỬA: Đổi INTER_LINEAR thành INTER_CUBIC để chống vỡ hạt
         # giúp AI nhận diện nét hơn khi zoom to mục tiêu ngoài thực địa
         # =========================================================
         return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_CUBIC)
@@ -265,18 +295,34 @@ class PracticeWindow(QMainWindow):
         self.gui.calibrate_button.setText("Hủy" if is_calibrating else "Hiệu chỉnh tâm")
 
     def set_new_center(self, click_pos: QPoint):
-        widget_size = self.gui.camera_view_label.size(); img_w, img_h = self.final_size
-        scale = min(widget_size.width() / img_w, widget_size.height() / img_h); display_w, display_h = int(img_w * scale), int(img_h * scale)
-        offset_x, offset_y = (widget_size.width() - display_w) // 2, (widget_size.height() - display_h) // 2
-        if not (offset_x <= click_pos.x() < offset_x + display_w and offset_y <= click_pos.y() < offset_y + display_h): return
-        click_on_display_x = click_pos.x() - offset_x; click_on_display_y = click_pos.y() - offset_y
-        click_on_zoomed_image_x = int(click_on_display_x / scale); click_on_zoomed_image_y = int(click_on_display_y / scale)
-        start_x_on_original = (img_w - int(img_w / self.zoom_level)) // 2; start_y_on_original = (img_h - int(img_h / self.zoom_level)) // 2
-        final_img_x = int(start_x_on_original + (click_on_zoomed_image_x / self.zoom_level)); final_img_y = int(start_y_on_original + (click_on_zoomed_image_y / self.zoom_level))
+        widget_size = self.gui.camera_view_label.size()
+        img_w, img_h = self.final_size
+        scale = min(widget_size.width() / img_w, widget_size.height() / img_h)
+        display_w, display_h = int(img_w * scale), int(img_h * scale)
+        offset_x, offset_y = (widget_size.width() - display_w) // 2, (
+            widget_size.height() - display_h
+        ) // 2
+        if not (
+            offset_x <= click_pos.x() < offset_x + display_w
+            and offset_y <= click_pos.y() < offset_y + display_h
+        ):
+            return
+        click_on_display_x = click_pos.x() - offset_x
+        click_on_display_y = click_pos.y() - offset_y
+        click_on_zoomed_image_x = int(click_on_display_x / scale)
+        click_on_zoomed_image_y = int(click_on_display_y / scale)
+        start_x_on_original = (img_w - int(img_w / self.zoom_level)) // 2
+        start_y_on_original = (img_h - int(img_h / self.zoom_level)) // 2
+        final_img_x = int(
+            start_x_on_original + (click_on_zoomed_image_x / self.zoom_level)
+        )
+        final_img_y = int(
+            start_y_on_original + (click_on_zoomed_image_y / self.zoom_level)
+        )
         self.calibrated_center = (final_img_x, final_img_y)
         self.toggle_calibration_mode()
 
-    def on_zoom_changed(self, value): 
+    def on_zoom_changed(self, value):
         self.zoom_level = value / 10.0
 
     def reset_ui_state(self):

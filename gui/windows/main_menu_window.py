@@ -1,13 +1,17 @@
 # file: gui/windows/main_menu_window.py
-import os
 import logging
-from PySide6.QtWidgets import QMainWindow
-from PySide6.QtGui import QPixmap, QImage
+import os
+
 from PySide6.QtCore import Qt
-from ..ui.ui_main_menu import Ui_MainMenuWindow
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import QMainWindow
+
 from utils.resource_path import resource_path
 
+from ..ui.ui_main_menu import Ui_MainMenuWindow
+
 logger = logging.getLogger(__name__)
+
 
 class MainMenuWindow(QMainWindow):
     def __init__(self, config: dict):
@@ -22,10 +26,10 @@ class MainMenuWindow(QMainWindow):
         self.practice_button = self.ui.practice_button
         # Đã xóa self.stats_button
         self.exit_button = self.ui.exit_button
-        
+
     def _apply_labels(self):
         labels = self.config.get("labels", {})
-        
+
         customer_name = labels.get("customer_unit_name", "")
         self.ui.customer_title_label.setText(customer_name.upper())
 
@@ -39,15 +43,17 @@ class MainMenuWindow(QMainWindow):
 
     def _load_logos(self):
         labels_config = self.config.get("labels", {})
-        
+
         left_path_raw = self.config.get("logo_left") or labels_config.get("logo_left")
-        right_path_raw = self.config.get("logo_right") or labels_config.get("logo_right")
+        right_path_raw = self.config.get("logo_right") or labels_config.get(
+            "logo_right"
+        )
 
         from config import APP_DATA_DIR
 
         def smart_find_and_set(path_raw, label_widget, position_name):
             if not path_raw:
-                return 
+                return
 
             possible_paths = []
             possible_paths.append(path_raw)
@@ -65,21 +71,21 @@ class MainMenuWindow(QMainWindow):
                 if os.path.exists(norm_p):
                     final_path = norm_p
                     break
-            
+
             if final_path:
                 pixmap = QPixmap(final_path)
                 if not pixmap.isNull():
-                    target_size = label_widget.size() 
+                    target_size = label_widget.size()
                     scaled_pixmap = pixmap.scaled(
-                        target_size, 
-                        Qt.KeepAspectRatio, 
-                        Qt.SmoothTransformation
+                        target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
                     )
-                    
+
                     label_widget.setPixmap(scaled_pixmap)
                     logger.info(f"✅ Đã hiện logo {position_name} từ: {final_path}")
                 else:
-                    logger.error(f"❌ File tồn tại nhưng lỗi định dạng ảnh: {final_path}")
+                    logger.error(
+                        f"❌ File tồn tại nhưng lỗi định dạng ảnh: {final_path}"
+                    )
             else:
                 logger.warning(f"⚠️ Không tìm thấy logo {position_name}.")
 

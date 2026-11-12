@@ -1,4 +1,5 @@
 import os
+
 from platformdirs import user_data_dir
 
 APP_DATA_DIR = user_data_dir("ShootingApp", "LTSoftware")

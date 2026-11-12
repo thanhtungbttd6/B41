@@ -1,40 +1,47 @@
 # file: main.py
-import os
-import sys
-import logging
 import json
-import shutil
+import logging
 import multiprocessing
+import os
+import shutil
+import sys
+
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QStackedWidget, QInputDialog, 
-    QMessageBox, QProxyStyle, QStyleFactory
+    QApplication,
+    QInputDialog,
+    QMainWindow,
+    QMessageBox,
+    QProxyStyle,
+    QStackedWidget,
+    QStyleFactory,
 )
+
 # Bắt buộc thêm đoạn này để ép Python in toàn bộ log INFO ra terminal
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s | %(message)s',
-    datefmt='%H:%M:%S',
-    stream=sys.stdout
+    format="%(asctime)s | %(message)s",
+    datefmt="%H:%M:%S",
+    stream=sys.stdout,
 )
 
 from PySide6.QtCore import QThread
-from PySide6.QtGui import QIcon, QFont, QPalette, QColor
+from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 
-from utils.resource_path import resource_path
+from config import APP_DATA_DIR
+from core.triggers import BluetoothTrigger
+from core.worker import ProcessingWorker
 from gui.windows.main_menu_window import MainMenuWindow
 from gui.windows.practice_window import PracticeWindow
-from core.worker import ProcessingWorker
-from core.triggers import BluetoothTrigger
-from config import APP_DATA_DIR
 from utils.license_manager import verify_key
+from utils.resource_path import resource_path
 
 log_file_path = os.path.join(APP_DATA_DIR, "app_log.txt")
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
 file_handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] (%(name)s) - %(message)s')
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] (%(name)s) - %(message)s")
 file_handler.setFormatter(formatter)
 root_logger.addHandler(file_handler)
 
@@ -106,11 +113,12 @@ GLOBAL_STYLESHEET = """
     }
 """
 
+
 def check_or_request_license() -> bool:
-    license_file_path = os.path.join(APP_DATA_DIR, 'license.key')
+    license_file_path = os.path.join(APP_DATA_DIR, "license.key")
     if os.path.exists(license_file_path):
         try:
-            with open(license_file_path, 'r', encoding='utf-8') as f:
+            with open(license_file_path, "r", encoding="utf-8") as f:
                 key = f.read().strip()
             if verify_key(key):
                 logging.info("License hợp lệ.")
@@ -122,54 +130,62 @@ def check_or_request_license() -> bool:
             logging.error(f"Lỗi đọc file license: {e}")
 
     while True:
-        key, ok = QInputDialog.getText(None, "Yêu cầu Kích hoạt", "Vui lòng nhập License Key để tiếp tục:")
-        if not ok: return False 
+        key, ok = QInputDialog.getText(
+            None, "Yêu cầu Kích hoạt", "Vui lòng nhập License Key để tiếp tục:"
+        )
+        if not ok:
+            return False
         if verify_key(key):
             try:
-                with open(license_file_path, 'w', encoding='utf-8') as f:
+                with open(license_file_path, "w", encoding="utf-8") as f:
                     f.write(key)
-                QMessageBox.information(None, "Thành công", "Kích hoạt phần mềm thành công!")
+                QMessageBox.information(
+                    None, "Thành công", "Kích hoạt phần mềm thành công!"
+                )
                 return True
             except Exception as e:
                 QMessageBox.critical(None, "Lỗi", f"Không thể lưu license: {e}")
                 return False
         else:
-            QMessageBox.warning(None, "Lỗi", "License Key không hợp lệ. Vui lòng kiểm tra lại.")
+            QMessageBox.warning(
+                None, "Lỗi", "License Key không hợp lệ. Vui lòng kiểm tra lại."
+            )
+
 
 class ApplicationController(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = self._load_config()
         self._ensure_assets_are_in_appdata()
-        
+
         app_title = self.config.get("labels", {}).get("app_title", "Phần Mềm Bắn Súng")
         self.setWindowTitle(app_title)
-        self.setStyleSheet("background-color: #f8fafc;") # Màu nền sáng cho container chính
-        
+        self.setStyleSheet(
+            "background-color: #f8fafc;"
+        )  # Màu nền sáng cho container chính
+
         self.processing_thread = QThread()
         self.processing_worker = ProcessingWorker(self.config)
         self.bt_trigger = BluetoothTrigger()
-        
+
         self.processing_thread.setObjectName("ProcessingThread")
         self.processing_worker.moveToThread(self.processing_thread)
-        
+
         self.main_menu = MainMenuWindow(self.config)
         self.practice_screen = PracticeWindow(
-            worker=self.processing_worker, 
-            trigger=self.bt_trigger,
-            config=self.config
+            worker=self.processing_worker, trigger=self.bt_trigger, config=self.config
         )
-        
+
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
         self.stacked_widget.addWidget(self.main_menu)
         self.stacked_widget.addWidget(self.practice_screen)
 
         self.connect_signals()
-        
+
         self.processing_thread.start()
         self.bt_trigger.start_global_listener()
-    
+
     def _load_config(self) -> dict:
         config_filename = "config.json"
         dest_path = os.path.join(APP_DATA_DIR, config_filename)
@@ -183,7 +199,8 @@ class ApplicationController(QMainWindow):
                     logging.error(f"Lỗi khởi tạo config: {e}")
         if os.path.exists(dest_path):
             try:
-                with open(dest_path, 'r', encoding='utf-8') as f: return json.load(f)
+                with open(dest_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
             except Exception as e:
                 logging.error(f"Lỗi đọc config.json: {e}")
         return {}
@@ -196,10 +213,14 @@ class ApplicationController(QMainWindow):
         if model_filename:
             dest_model_path = os.path.join(APP_DATA_DIR, model_filename)
             if not os.path.exists(dest_model_path):
-                source_model_path = resource_path(os.path.join("assets", "models", model_filename))
+                source_model_path = resource_path(
+                    os.path.join("assets", "models", model_filename)
+                )
                 if os.path.exists(source_model_path):
-                    try: shutil.copyfile(source_model_path, dest_model_path)
-                    except Exception as e: logging.error(f"Lỗi sao chép model: {e}")
+                    try:
+                        shutil.copyfile(source_model_path, dest_model_path)
+                    except Exception as e:
+                        logging.error(f"Lỗi sao chép model: {e}")
 
         target_logos = ["logo_left.png", "logo_right.png"]
         for filename in target_logos:
@@ -207,23 +228,31 @@ class ApplicationController(QMainWindow):
             if not os.path.exists(dest_path):
                 source_path = resource_path(os.path.join("assets", filename))
                 if os.path.exists(source_path):
-                    try: shutil.copyfile(source_path, dest_path)
-                    except Exception as e: logging.error(f"Lỗi khi copy {filename}: {e}")
+                    try:
+                        shutil.copyfile(source_path, dest_path)
+                    except Exception as e:
+                        logging.error(f"Lỗi khi copy {filename}: {e}")
 
     def connect_signals(self):
-        self.main_menu.practice_button.clicked.connect(self.show_practice_screen)       
+        self.main_menu.practice_button.clicked.connect(self.show_practice_screen)
         self.practice_screen.gui.back_button.clicked.connect(self.show_main_menu)
         self.main_menu.exit_button.clicked.connect(self.close)
 
-        self.practice_screen.request_processing.connect(self.processing_worker.process_image)
-        self.processing_worker.finished.connect(self.practice_screen.on_processing_finished)
+        self.practice_screen.request_processing.connect(
+            self.processing_worker.process_image
+        )
+        self.processing_worker.finished.connect(
+            self.practice_screen.on_processing_finished
+        )
         self.bt_trigger.triggered.connect(self.practice_screen.capture_photo)
 
     def cleanup_before_exit(self):
-        if self.bt_trigger: self.bt_trigger.stop_global_listener()
+        if self.bt_trigger:
+            self.bt_trigger.stop_global_listener()
         if self.processing_thread.isRunning():
             self.processing_thread.quit()
-            if not self.processing_thread.wait(3000): self.processing_thread.terminate()
+            if not self.processing_thread.wait(3000):
+                self.processing_thread.terminate()
 
     def show_main_menu(self):
         if self.stacked_widget.currentWidget() == self.practice_screen:
@@ -234,11 +263,12 @@ class ApplicationController(QMainWindow):
         self.practice_screen.start_camera()
         self.stacked_widget.setCurrentWidget(self.practice_screen)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     multiprocessing.freeze_support()
     app = QApplication(sys.argv)
-    
-    app.setStyle("Fusion") 
+
+    app.setStyle("Fusion")
     app.setStyleSheet(GLOBAL_STYLESHEET)
     font = QFont("Segoe UI", 10)
     app.setFont(font)
