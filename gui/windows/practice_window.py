@@ -65,10 +65,6 @@ class PracticeWindow(QMainWindow):
             self.configured_camera_index = int(self.config.get("camera_index", 0))
         except (ValueError, TypeError):
             self.configured_camera_index = 0
-            
-        self.save_dir = os.path.join(APP_DATA_DIR, "captured_images")
-        os.makedirs(self.save_dir, exist_ok=True)
-        logger.info(f"Thư mục lưu ảnh được thiết lập tại: {self.save_dir}")
 
         # Ẩn các nút không còn sử dụng trên UI nếu chúng tồn tại
         if hasattr(self.gui, 'session_button'):
@@ -216,18 +212,10 @@ class PracticeWindow(QMainWindow):
         # Tiếng nổ
         self.audio_manager.play_shot()
         
-        try:
-            image_to_save = self.gui.camera_view_label._pixmap.toImage()
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-            filename = f"shot_{timestamp}.png"
-            save_path = os.path.join(self.save_dir, filename)
-            image_to_save.save(save_path, "PNG")
-            
-            # Gửi yêu cầu phân tích
-            self.request_processing.emit(frame_for_analysis, shot_center_for_analysis, save_path)
-            
-        except Exception as e:
-            logger.error(f"Lỗi khi đang lưu ảnh: {e}")
+        # SỬA LỖI: KHÔNG dùng _pixmap.toImage() nữa để tránh dính ảnh tâm đỏ.
+        # Tạo thẳng mã Timestamp và truyền cho Worker tự xử lý việc lưu ảnh Dataset.
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        self.request_processing.emit(frame_for_analysis, shot_center_for_analysis, timestamp)
 
     @Slot(dict)
     def on_processing_finished(self, result):
@@ -265,7 +253,11 @@ class PracticeWindow(QMainWindow):
         if frame is None or zoom <= 1.0: return frame
         h, w, _ = frame.shape; crop_w, crop_h = int(w / zoom), int(h / zoom)
         start_x, start_y = (w - crop_w) // 2, (h - crop_h) // 2; cropped = frame[start_y : start_y + crop_h, start_x : start_x + crop_w]
-        return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+        # =========================================================
+        # ĐÃ SỬA: Đổi INTER_LINEAR thành INTER_CUBIC để chống vỡ hạt 
+        # giúp AI nhận diện nét hơn khi zoom to mục tiêu ngoài thực địa
+        # =========================================================
+        return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_CUBIC)
 
     def toggle_calibration_mode(self):
         is_calibrating = not self.gui.camera_view_label._is_calibrating

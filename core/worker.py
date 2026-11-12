@@ -23,7 +23,7 @@ class ProcessingWorker(QObject):
         
         self._initialize_detector()
 
-        self.confidence_threshold = self.config.get('yolo_confidence_threshold', 0.75)
+        self.confidence_threshold = self.config.get('yolo_confidence_threshold', 0.40) # Mức 0.40 như đã fix
         logger.info(f"Worker initialized with confidence threshold: {self.confidence_threshold}")
 
         if self.detector:
@@ -51,21 +51,46 @@ class ProcessingWorker(QObject):
         self.detector = ObjectDetector(model_path=model_path)
 
     @Slot(np.ndarray, object, str)
-    def process_image(self, photo_frame, calibrated_center, image_path):
+    def process_image(self, photo_frame, calibrated_center, timestamp):
         if not self.detector or not self.detector.model:
             logger.error("Detector chưa được khởi tạo. Hủy bỏ xử lý ảnh.")
             error_package = {
                 'time_str': datetime.now().strftime('%H:%M:%S'),
                 'target_name': "Lỗi Model AI",
                 'score': 0, 'result_frame': photo_frame, 'coords': None,
-                'image_path': image_path, 'target_detected_raw': "ERROR"
+                'image_path': timestamp, 'target_detected_raw': "ERROR"
             }
             self.finished.emit(error_package)
             return
             
+        # ========================================================
+        # 1. TẠO BẢN SAO ẢNH SẠCH (CHƯA VẼ GÌ) 
+        # ========================================================
+        clean_frame = photo_frame.copy()
+        img_h, img_w = clean_frame.shape[:2]
+
+        # KHỞI TẠO CẤU TRÚC THƯ MỤC DATASET AUTO VÀ THƯ MỤC DEBUG
+        dataset_dir = os.path.join(APP_DATA_DIR, "auto_dataset")
+        hits_img_dir = os.path.join(dataset_dir, "hits", "images")
+        hits_lbl_dir = os.path.join(dataset_dir, "hits", "labels")
+        misses_dir = os.path.join(dataset_dir, "misses")
+        
+        # Thư mục chứa ảnh thực tế truyền vào AI để kiểm tra (Debug)
+        debug_ai_dir = os.path.join(APP_DATA_DIR, "debug_ai_frames") 
+        
+        os.makedirs(hits_img_dir, exist_ok=True)
+        os.makedirs(hits_lbl_dir, exist_ok=True)
+        os.makedirs(misses_dir, exist_ok=True)
+        os.makedirs(debug_ai_dir, exist_ok=True)
+
+        # LƯU ẢNH DEBUG KIỂM CHỨNG TRƯỚC KHI AI PHÂN TÍCH
+        debug_img_path = os.path.join(debug_ai_dir, f"{timestamp}_input.jpg")
+        cv2.imwrite(debug_img_path, clean_frame)
+        logger.info(f"Đã lưu ảnh đầu vào AI tại: {debug_img_path}")
+
+        # AI BẮT ĐẦU NHẬN DIỆN
         detections = self.detector.detect(image=photo_frame, conf=self.confidence_threshold)
 
-        # ============ LOG THEO DÕI QUÁ TRÌNH NHẬN DIỆN YOLO ============
         logger.info("\n" + "="*50)
         logger.info("📸 BẮT ĐẦU PHÂN TÍCH ẢNH BẮN")
         
@@ -73,26 +98,19 @@ class ProcessingWorker(QObject):
             logger.warning("❌ [YOLO] KHÔNG nhận diện được bia nào (Do mờ, hoặc chưa đạt ngưỡng tin cậy).")
         else:
             for i, det in enumerate(detections):
-                # Det thường chứa: class_name, confidence, [x1, y1, x2, y2]
-                class_name = det.get('name', 'Unknown')
-                conf = det.get('confidence', 0) * 100
+                class_name = det.get('class_name', 'Unknown')
+                conf = det.get('conf', 0) * 100
                 box = det.get('box', [0,0,0,0])
                 
                 logger.info(f"🎯 [YOLO] Phát hiện mục tiêu {i+1}: '{class_name}' | Độ tin cậy: {conf:.2f}%")
-                logger.info(f"   -> Tọa độ Box: X:{int(box[0])}, Y:{int(box[1])} đến X:{int(box[2])}, Y:{int(box[3])}")
                 
                 if calibrated_center:
                     cx, cy = calibrated_center
-                    logger.info(f"📍 Điểm ngắm (Hiệu chỉnh tâm): X:{cx}, Y:{cy}")
-                    
                     if int(box[0]) <= cx <= int(box[2]) and int(box[1]) <= cy <= int(box[3]):
                         logger.info("✅ Điểm ngắm NẰM TRONG khung nhận diện của bia (Đợi OpenCV xét màu).")
                     else:
                         logger.warning("⚠️ Điểm ngắm NẰM NGOÀI khung nhận diện của bia này.")
-                else:
-                    logger.warning("⚠️ Chưa có tọa độ hiệu chỉnh tâm bóp cò (calibrated_center is None).")
         logger.info("="*50 + "\n")
-        # ===============================================================
 
         status, hit_info = check_object_center(detections, photo_frame, calibrated_center)
 
@@ -111,42 +129,68 @@ class ProcessingWorker(QObject):
             hit_status = calculate_hit_result_by_color(photo_frame, target_box, aim_point)
             
             if hit_status == "Trúng":
-                 # Vẽ CHẤM XANH LÁ khi Trúng
+                 # 1. Vẽ lên photo_frame CHỈ để gửi trả về màn hình hiển thị
                  cv2.circle(photo_frame, (int(aim_point[0]), int(aim_point[1])), 5, (0, 255, 0), -1)
                  result_data = {'target': detected_name, 'score': 1, 'image': photo_frame, 'coords': aim_point}
-                 logger.info(f"✅ Kết luận cuối: Bắn TRÚNG hồng tâm '{detected_name}'!")
+                 
+                 # ========================================================
+                 # 2. XUẤT DATASET HITS CHO YOLO (Lấy ẢNH SẠCH + TÍNH TOÁN BOX)
+                 # ========================================================
+                 img_path = os.path.join(hits_img_dir, f"{timestamp}.jpg")
+                 lbl_path = os.path.join(hits_lbl_dir, f"{timestamp}.txt")
+                 
+                 # Lưu ảnh không tì vết
+                 cv2.imwrite(img_path, clean_frame)
+                 
+                 # Chuyển đổi tọa độ Box sang tỷ lệ chuẩn YOLO (x_center, y_center, width, height)
+                 x1, y1, x2, y2 = target_box
+                 x_center = ((x1 + x2) / 2.0) / img_w
+                 y_center = ((y1 + y2) / 2.0) / img_h
+                 w = (x2 - x1) / img_w
+                 h = (y2 - y1) / img_h
+                 
+                 # Tìm class_id (Index của class trong YOLO model)
+                 class_id = 0
+                 if hasattr(self.detector.model, 'names'):
+                     for k, v in self.detector.model.names.items():
+                         if v == detected_name:
+                             class_id = k
+                             break
+                             
+                 # Ghi tọa độ ra file txt
+                 with open(lbl_path, "w") as f:
+                     f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {w:.6f} {h:.6f}\n")
+                     
+                 logger.info(f"✅ Đã trích xuất Dataset TRÚNG (Ảnh + Label) tại: auto_dataset/hits")
             else:
                 logger.warning(f"⚠️ Kết luận cuối: Bắn vào bia '{detected_name}' nhưng trượt phần đen hồng tâm.")
-                # Vẽ DẤU X ĐỎ khi Trượt (MARKER_TILTED_CROSS là hình chữ X)
                 cv2.drawMarker(photo_frame, (int(aim_point[0]), int(aim_point[1])), (0, 0, 255), markerType=cv2.MARKER_TILTED_CROSS, markerSize=20, thickness=3)
                 result_data = {'target': detected_name, 'score': 0, 'image': photo_frame, 'coords': aim_point}
+                
+                # Lưu ảnh sạch TRƯỢT
+                miss_img_path = os.path.join(misses_dir, f"{timestamp}.jpg")
+                cv2.imwrite(miss_img_path, clean_frame)
+                logger.info(f"Đã lưu Dataset TRƯỢT tại: auto_dataset/misses")
         else:
-            # Trường hợp bắn hoàn toàn ra ngoài (AI không nhận diện được bia)
-            aim_point = hit_info.get('shot_point', (photo_frame.shape[1]//2, photo_frame.shape[0]//2)) # Lấy điểm ngắm hoặc tâm màn hình
+            aim_point = hit_info.get('shot_point', (photo_frame.shape[1]//2, photo_frame.shape[0]//2))
             cv2.drawMarker(photo_frame, (int(aim_point[0]), int(aim_point[1])), (0, 0, 255), markerType=cv2.MARKER_TILTED_CROSS, markerSize=20, thickness=3)
             
             result_data = {'target': "Ngoài bia", 'score': 0, 'image': photo_frame, 'coords': aim_point}
             target_detected_raw = "Trượt" 
-            logger.warning("❌ Kết luận cuối: Bắn HOÀN TOÀN TRƯỢT ra ngoài (Không trúng bia nào).")
-
-        if result_data.get('score') is not None and result_data.get('score') > 0:
-            final_image_to_save = result_data.get('image')
-            if final_image_to_save is not None:
-                try:
-                    cv2.imwrite(image_path, final_image_to_save)
-                    logger.info(f"Worker: Đã ghi đè ảnh kết quả tại {image_path}")
-                except Exception as e:
-                    logger.error(f"Worker: Lỗi khi ghi đè ảnh kết quả: {e}")
+            
+            # Lưu ảnh sạch TRƯỢT
+            miss_img_path = os.path.join(misses_dir, f"{timestamp}.jpg")
+            cv2.imwrite(miss_img_path, clean_frame)
+            logger.info(f"Đã lưu Dataset TRƯỢT tại: auto_dataset/misses")
 
         final_package = {
             'time_str': datetime.now().strftime('%H:%M:%S'),
             'target_name': result_data.get('target', hit_status),
             'score': result_data.get('score', 0),
-            'result_frame': result_data.get('image', photo_frame),
+            'result_frame': result_data.get('image', photo_frame), # Vẫn trả về ảnh đã vẽ để UI hiển thị
             'coords': result_data.get('coords'),
-            'image_path': image_path,
+            'image_path': timestamp, 
             'target_detected_raw': target_detected_raw
         }
         
         self.finished.emit(final_package)
-        logger.info(f"Worker: Đã gửi kết quả hiển thị lên GUI.")
