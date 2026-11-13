@@ -1,10 +1,13 @@
 """B41 - Trung Lien Practice UI.
-Giao diện độc lập, chưa kết nối phần cứng điều khiển.
+Giao diện độc lập, hiển thị camera và hỗ trợ chọn tâm giống màn hình B41.
 """
 
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QFont, QPixmap
+import cv2
+
+from PySide6.QtCore import Qt, QSize, QPoint, Signal
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QWidget,
     QVBoxLayout,
@@ -22,12 +25,44 @@ from PySide6.QtWidgets import (
 from .theme import COLORS, scaled, add_soft_shadow
 
 
+class ToggleSwitch(QAbstractButton):
+    """Công tắc bật/tắt dạng trượt (iOS style)."""
+
+    def __init__(self, width=44, height=24, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(width, height)
+
+    def sizeHint(self):
+        return QSize(self.width(), self.height())
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+
+        track_color = QColor(COLORS["primary"] if self.isChecked() else "#CBD5E1")
+        painter.setBrush(track_color)
+        radius = self.height() / 2
+        painter.drawRoundedRect(self.rect(), radius, radius)
+
+        margin = 3
+        knob_d = self.height() - 2 * margin
+        knob_x = self.width() - knob_d - margin if self.isChecked() else margin
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawEllipse(knob_x, margin, knob_d, knob_d)
+
+
 class TrungLienVideoLabel(QLabel):
-    """Khu vực hiển thị camera riêng của Trung liên."""
+    """Khu vực hiển thị camera riêng của Trung liên, hỗ trợ chọn tâm."""
+
+    clicked = Signal(QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pixmap = QPixmap()
+        self._is_calibrating = False
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumSize(240, 180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -40,6 +75,16 @@ class TrungLienVideoLabel(QLabel):
             font-weight: 600;
         """)
 
+    def set_calibration_mode(self, active: bool):
+        self._is_calibrating = active
+        self.setCursor(Qt.CrossCursor if active else Qt.ArrowCursor)
+        self.setToolTip("Click để chọn tâm ngắm mới" if active else "")
+
+    def mousePressEvent(self, event):
+        if self._is_calibrating and event.button() == Qt.LeftButton:
+            self.clicked.emit(event.pos())
+        super().mousePressEvent(event)
+
     def setPixmap(self, pixmap):
         self._pixmap = pixmap
         self.update()
@@ -48,8 +93,6 @@ class TrungLienVideoLabel(QLabel):
         if self._pixmap.isNull():
             super().paintEvent(event)
             return
-
-        from PySide6.QtGui import QPainter
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
@@ -92,72 +135,72 @@ class TrungLienGui(QWidget):
             QFrame#panel {{
                 background-color: {COLORS['surface']};
                 border: 1px solid {COLORS['border']};
-                border-radius: {s(17)}px;
+                border-radius: {s(14)}px;
             }}
             QLabel#screenTitle {{
                 color: {COLORS['text']};
-                font-size: {f(22)}px;
+                font-size: {f(18)}px;
                 font-weight: 800;
                 background: transparent;
             }}
             QLabel#panelTitle {{
                 color: {COLORS['primary']};
                 background-color: {COLORS['primary_soft']};
-                border-radius: {s(9)}px;
-                padding: {s(9)}px {s(14)}px;
-                font-size: {f(13)}px;
+                border-radius: {s(8)}px;
+                padding: {s(5)}px {s(12)}px;
+                font-size: {f(11)}px;
                 font-weight: 800;
             }}
             QLabel#fieldLabel {{
                 color: {COLORS['text_secondary']};
                 background: transparent;
-                font-size: {f(11)}px;
+                font-size: {f(10)}px;
                 font-weight: 700;
             }}
             QLabel#valueLabel {{
                 color: {COLORS['primary']};
                 background-color: {COLORS['primary_soft']};
                 border: 1px solid #D9E5FF;
-                border-radius: {s(9)}px;
-                padding: {s(8)}px;
-                font-size: {f(14)}px;
+                border-radius: {s(7)}px;
+                padding: {s(3)}px {s(6)}px;
+                font-size: {f(11)}px;
                 font-weight: 800;
             }}
             QLabel#resultLabel {{
                 color: {COLORS['text']};
                 background-color: {COLORS['surface_soft']};
                 border: 1px solid {COLORS['border']};
-                border-radius: {s(9)}px;
-                padding: {s(12)}px;
-                font-size: {f(12)}px;
+                border-radius: {s(8)}px;
+                padding: {s(6)}px {s(8)}px;
+                font-size: {f(10)}px;
                 font-weight: 600;
             }}
             QGroupBox {{
                 color: {COLORS['text']};
                 background-color: {COLORS['surface']};
                 border: 1px solid {COLORS['border']};
-                border-radius: {s(12)}px;
-                margin-top: {s(13)}px;
-                padding: {s(17)}px {s(12)}px {s(12)}px;
-                font-size: {f(12)}px;
+                border-radius: {s(10)}px;
+                margin-top: {s(10)}px;
+                padding: {s(10)}px {s(8)}px {s(8)}px;
+                font-size: {f(10)}px;
                 font-weight: 800;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
-                left: {s(12)}px;
-                padding: {s(3)}px {s(8)}px;
+                left: {s(10)}px;
+                padding: {s(1)}px {s(6)}px;
                 color: {COLORS['primary']};
                 background-color: {COLORS['surface']};
             }}
             QPushButton {{
-                min-height: {s(40)}px;
-                padding: {s(8)}px {s(15)}px;
+                min-height: {s(30)}px;
+                padding: {s(4)}px {s(12)}px;
                 color: white;
                 background-color: {COLORS['primary']};
                 border: none;
-                border-radius: {s(10)}px;
-                font-size: {f(11)}px;
+                border-radius: {s(8)}px;
+                font-size: {f(10)}px;
                 font-weight: 700;
             }}
             QPushButton:hover {{
@@ -178,36 +221,37 @@ class TrungLienGui(QWidget):
                 background-color: {COLORS['danger']};
             }}
             QComboBox {{
-                min-height: {s(36)}px;
-                padding: {s(4)}px {s(10)}px;
+                min-height: {s(28)}px;
+                padding: {s(2)}px {s(8)}px;
                 color: {COLORS['text']};
                 background-color: {COLORS['surface']};
                 border: 1px solid {COLORS['border_strong']};
-                border-radius: {s(9)}px;
+                border-radius: {s(8)}px;
+                font-size: {f(10)}px;
             }}
             QSlider::groove:horizontal {{
-                height: {s(6)}px;
+                height: {s(5)}px;
                 background: #E7ECF4;
-                border-radius: {s(3)}px;
+                border-radius: {s(2)}px;
             }}
             QSlider::sub-page:horizontal {{
                 background: {COLORS['primary']};
-                border-radius: {s(3)}px;
+                border-radius: {s(2)}px;
             }}
             QSlider::handle:horizontal {{
-                width: {s(17)}px;
-                height: {s(17)}px;
-                margin: -{s(6)}px 0;
+                width: {s(13)}px;
+                height: {s(13)}px;
+                margin: -{s(5)}px 0;
                 background: white;
-                border: 3px solid {COLORS['primary']};
-                border-radius: {s(10)}px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: {s(8)}px;
             }}
         """)
 
         # ROOT LAYOUT
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(s(22), s(18), s(22), s(20))
-        root_layout.setSpacing(s(15))
+        root_layout.setContentsMargins(s(14), s(10), s(14), s(12))
+        root_layout.setSpacing(s(8))
 
         # SCREEN TITLE
         title = QLabel("MÀN HÌNH LUYỆN TẬP TRUNG LIÊN")
@@ -215,25 +259,25 @@ class TrungLienGui(QWidget):
         title.setAlignment(Qt.AlignCenter)
         root_layout.addWidget(title)
 
-        # MAIN COLUMNS
+        # MAIN COLUMNS (tỷ lệ 6.5 : 3.5)
         columns = QHBoxLayout()
-        columns.setSpacing(s(17))
-        columns.addWidget(self._create_camera_panel(), 6)
-        columns.addWidget(self._create_right_panel(), 4)
+        columns.setSpacing(s(12))
+        columns.addWidget(self._create_camera_panel(), 13)
+        columns.addWidget(self._create_right_panel(), 7)
         root_layout.addLayout(columns, 1)
 
     def _create_panel(self):
         panel = QFrame()
         panel.setObjectName("panel")
-        add_soft_shadow(panel, blur=25, y_offset=6, alpha=17)
+        add_soft_shadow(panel, blur=20, y_offset=4, alpha=15)
         return panel
 
     def _create_camera_panel(self):
         panel = self._create_panel()
-        margin = scaled(17, self.scale_factor)
+        margin = scaled(10, self.scale_factor)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(margin, margin, margin, margin)
-        layout.setSpacing(margin)
+        layout.setSpacing(scaled(8, self.scale_factor))
 
         title = QLabel("HÌNH ẢNH CAMERA")
         title.setObjectName("panelTitle")
@@ -245,31 +289,38 @@ class TrungLienGui(QWidget):
         layout.addWidget(self.camera_view_label, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(scaled(9, self.scale_factor))
+        controls.setSpacing(scaled(7, self.scale_factor))
 
         self.camera_selector = QComboBox()
-        self.camera_selector.setMinimumWidth(scaled(135, self.scale_factor))
+        self.camera_selector.setMinimumWidth(scaled(115, self.scale_factor))
         self.camera_selector.setPlaceholderText("Chọn Camera...")
         controls.addWidget(self.camera_selector)
 
         self.refresh_button = QPushButton("Làm mới")
         self.refresh_button.setObjectName("refreshButton")
+        self.refresh_button.setCursor(Qt.PointingHandCursor)
         controls.addWidget(self.refresh_button)
 
         controls.addStretch(1)
 
+        zoom_text_label = QLabel("Thu phóng")
+        zoom_text_label.setObjectName("fieldLabel")
+
         self.zoom_slider = QSlider(Qt.Horizontal)
         self.zoom_slider.setRange(10, 50)
         self.zoom_slider.setValue(10)
-        self.zoom_slider.setMaximumWidth(scaled(120, self.scale_factor))
-        controls.addWidget(QLabel("Thu phóng"))
+        self.zoom_slider.setMaximumWidth(scaled(110, self.scale_factor))
+        controls.addWidget(zoom_text_label)
         controls.addWidget(self.zoom_slider)
 
         self.zoom_value_label = QLabel("1.0x")
         self.zoom_value_label.setObjectName("valueLabel")
+        self.zoom_value_label.setAlignment(Qt.AlignCenter)
+        self.zoom_value_label.setMinimumWidth(scaled(42, self.scale_factor))
         controls.addWidget(self.zoom_value_label)
 
         self.calibrate_button = QPushButton("Hiệu chỉnh tâm")
+        self.calibrate_button.setCursor(Qt.PointingHandCursor)
         controls.addWidget(self.calibrate_button)
 
         layout.addLayout(controls)
@@ -280,83 +331,89 @@ class TrungLienGui(QWidget):
 
     def _create_right_panel(self):
         panel = self._create_panel()
-        margin = scaled(17, self.scale_factor)
+        margin = scaled(10, self.scale_factor)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(margin, margin, margin, margin)
-        layout.setSpacing(scaled(12, self.scale_factor))
+        layout.setSpacing(scaled(8, self.scale_factor))
 
-        # TRAINING SETTINGS
+        # TRAINING SETTINGS (một dòng: công tắc Liên thanh + thanh tốc độ)
         settings_box = QGroupBox("THIẾT LẬP LUYỆN TẬP")
         settings_layout = QVBoxLayout(settings_box)
-        settings_layout.setSpacing(scaled(13, self.scale_factor))
-
-        mode_label = QLabel("Chế độ mô phỏng")
-        mode_label.setObjectName("fieldLabel")
-        settings_layout.addWidget(mode_label)
-
-        self.fire_mode_combo = QComboBox()
-        self.fire_mode_combo.addItems(
-            [
-                "Phát một lần",
-                "Mô phỏng liên tục",
-            ]
+        settings_layout.setContentsMargins(
+            scaled(6, self.scale_factor),
+            scaled(4, self.scale_factor),
+            scaled(6, self.scale_factor),
+            scaled(2, self.scale_factor),
         )
-        settings_layout.addWidget(self.fire_mode_combo)
 
-        rate_header = QHBoxLayout()
-        rate_label = QLabel("Thông số mô phỏng")
-        rate_label.setObjectName("fieldLabel")
-        rate_header.addWidget(rate_label)
-        rate_header.addStretch(1)
+        self.settings_row = QHBoxLayout()
+        self.settings_row.setSpacing(scaled(8, self.scale_factor))
 
-        self.rate_value_label = QLabel("700")
-        self.rate_value_label.setObjectName("valueLabel")
-        self.rate_value_label.setMinimumWidth(scaled(75, self.scale_factor))
-        self.rate_value_label.setAlignment(Qt.AlignCenter)
-        rate_header.addWidget(self.rate_value_label)
-        settings_layout.addLayout(rate_header)
+        burst_label = QLabel("Liên thanh")
+        burst_label.setObjectName("fieldLabel")
+        self.settings_row.addWidget(burst_label)
+
+        self.burst_switch = ToggleSwitch(
+            width=scaled(42, self.scale_factor),
+            height=scaled(22, self.scale_factor),
+        )
+        self.settings_row.addWidget(self.burst_switch)
+
+        # Cụm tốc độ bắn: chỉ hiện khi bật Liên thanh
+        self.rate_container = QWidget()
+        rate_layout = QHBoxLayout(self.rate_container)
+        rate_layout.setContentsMargins(scaled(6, self.scale_factor), 0, 0, 0)
+        rate_layout.setSpacing(scaled(8, self.scale_factor))
 
         self.rate_slider = QSlider(Qt.Horizontal)
         self.rate_slider.setRange(500, 900)
         self.rate_slider.setValue(700)
         self.rate_slider.setSingleStep(10)
         self.rate_slider.setPageStep(50)
-        self.rate_slider.setEnabled(False)
-        settings_layout.addWidget(self.rate_slider)
+        self.rate_slider.setToolTip("Tốc độ bắn mô phỏng (500 - 900)")
+        rate_layout.addWidget(self.rate_slider, 1)
 
-        rate_scale = QHBoxLayout()
-        rate_scale.addWidget(QLabel("500"))
-        rate_scale.addStretch(1)
-        rate_scale.addWidget(QLabel("900"))
-        settings_layout.addLayout(rate_scale)
+        self.rate_value_label = QLabel("700")
+        self.rate_value_label.setObjectName("valueLabel")
+        self.rate_value_label.setMinimumWidth(scaled(46, self.scale_factor))
+        self.rate_value_label.setAlignment(Qt.AlignCenter)
+        rate_layout.addWidget(self.rate_value_label)
 
-        self.rate_note_label = QLabel(
-            "Thông số chỉ dùng cho giao diện mô phỏng; " "chưa kết nối phần cứng."
-        )
-        self.rate_note_label.setWordWrap(True)
-        self.rate_note_label.setStyleSheet(
-            f"color: {COLORS['text_secondary']}; "
-            "font-size: 10px; background: transparent;"
-        )
-        settings_layout.addWidget(self.rate_note_label)
+        self.settings_row.addWidget(self.rate_container, 1)
+        self.settings_row.addStretch(0)  # index 3: giữ chỗ khi thanh tốc độ ẩn
+        settings_layout.addLayout(self.settings_row)
 
-        self.fire_mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self.burst_switch.toggled.connect(self._on_burst_toggled)
         self.rate_slider.valueChanged.connect(self._on_rate_changed)
+        self._on_burst_toggled(False)
 
         layout.addWidget(settings_box)
 
         # RESULT PANEL
         result_box = QGroupBox("KẾT QUẢ GHI NHẬN")
         result_layout = QVBoxLayout(result_box)
-        result_layout.setSpacing(scaled(10, self.scale_factor))
+        result_layout.setContentsMargins(
+            scaled(6, self.scale_factor),
+            scaled(6, self.scale_factor),
+            scaled(6, self.scale_factor),
+            scaled(6, self.scale_factor),
+        )
+        result_layout.setSpacing(scaled(6, self.scale_factor))
+
+        info_row = QHBoxLayout()
+        info_row.setSpacing(scaled(6, self.scale_factor))
 
         self.target_name_label = QLabel("Tên mục tiêu: --")
         self.target_name_label.setObjectName("resultLabel")
-        result_layout.addWidget(self.target_name_label)
+        self.target_name_label.setWordWrap(True)
+        info_row.addWidget(self.target_name_label, 1)
 
         self.score_label = QLabel("Kết quả: --")
         self.score_label.setObjectName("resultLabel")
-        result_layout.addWidget(self.score_label)
+        self.score_label.setWordWrap(True)
+        info_row.addWidget(self.score_label, 1)
+
+        result_layout.addLayout(info_row)
 
         image_title = QLabel("HÌNH ẢNH KẾT QUẢ")
         image_title.setObjectName("fieldLabel")
@@ -364,7 +421,10 @@ class TrungLienGui(QWidget):
 
         self.result_image_label = QLabel("Chưa có ảnh kết quả")
         self.result_image_label.setAlignment(Qt.AlignCenter)
-        self.result_image_label.setMinimumHeight(scaled(145, self.scale_factor))
+        self.result_image_label.setMinimumHeight(scaled(180, self.scale_factor))
+        self.result_image_label.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
         self.result_image_label.setStyleSheet(f"""
             background-color: {COLORS['surface_soft']};
             color: {COLORS['text_muted']};
@@ -382,15 +442,51 @@ class TrungLienGui(QWidget):
 
         return panel
 
-    def _on_mode_changed(self, index):
-        """Hiển thị hoặc ẩn điều khiển thông số mô phỏng."""
-        is_continuous_simulation = index == 1
-        self.rate_slider.setEnabled(is_continuous_simulation)
+    # ==============================================
+    # CAMERA DISPLAY (giống màn hình B41)
+    # ==============================================
 
-        if not is_continuous_simulation:
-            self.rate_value_label.setText("--")
+    def _convert_cv_to_pixmap(self, cv_img) -> QPixmap:
+        if cv_img is None:
+            return QPixmap()
 
-        else:
+        rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+        height, width, channels = rgb_image.shape
+        bytes_per_line = channels * width
+
+        qt_image = QImage(
+            rgb_image.data,
+            width,
+            height,
+            bytes_per_line,
+            QImage.Format_RGB888,
+        )
+        return QPixmap.fromImage(qt_image.copy())
+
+    def display_frame(self, frame_bgr):
+        if frame_bgr is None:
+            return
+        self.camera_view_label.setPixmap(self._convert_cv_to_pixmap(frame_bgr))
+
+    def clear_video_feed(self, message: str):
+        self.camera_view_label.setPixmap(QPixmap())
+        self.camera_view_label.setText(message)
+
+    # ==============================================
+    # TRAINING SETTINGS
+    # ==============================================
+
+    def is_burst_enabled(self) -> bool:
+        """Trả về True nếu công tắc Liên thanh đang bật."""
+        return self.burst_switch.isChecked()
+
+    def _on_burst_toggled(self, checked):
+        """Bật Liên thanh mới hiển thị thanh kéo tốc độ bắn."""
+        self.rate_container.setVisible(checked)
+        # Khi ẩn: spacer cuối hàng nhận phần dư; khi hiện: thanh tốc độ giãn ra
+        self.settings_row.setStretch(2, 1 if checked else 0)
+        self.settings_row.setStretch(3, 0 if checked else 1)
+        if checked:
             self.rate_value_label.setText(str(self.rate_slider.value()))
 
     def _on_rate_changed(self, value):

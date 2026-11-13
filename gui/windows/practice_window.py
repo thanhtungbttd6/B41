@@ -256,7 +256,6 @@ class PracticeWindow(QMainWindow):
             display_score_text = "TRƯỢT"
 
         self.gui.update_results(
-            time_str=result.get("time_str"),
             target_name=display_target_name,
             score=display_score_text,
             result_frame=final_image_to_display,
@@ -326,7 +325,6 @@ class PracticeWindow(QMainWindow):
         self.zoom_level = value / 10.0
 
     def reset_ui_state(self):
-        self.gui.time_label.setText("Thời gian: --:--:--")
         self.gui.target_name_label.setText("Tên mục tiêu: --")
         self.gui.score_label.setText("Kết quả: --")
         self.gui.result_image_label.setText("Chưa có ảnh kết quả")

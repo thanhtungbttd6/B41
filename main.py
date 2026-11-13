@@ -240,6 +240,7 @@ class ApplicationController(QMainWindow):
         self.main_menu.practice_button.clicked.connect(self.show_practice_screen)
         self.main_menu.trung_lien_button.clicked.connect(self.show_trung_lien_screen)
         self.practice_screen.gui.back_button.clicked.connect(self.show_main_menu)
+        self.trung_lien_screen.back_button.clicked.connect(self.show_main_menu)
         self.main_menu.exit_button.clicked.connect(self.close)
 
         self.practice_screen.request_processing.connect(
@@ -251,6 +252,10 @@ class ApplicationController(QMainWindow):
         self.bt_trigger.triggered.connect(self.practice_screen.capture_photo)
 
     def cleanup_before_exit(self):
+        # Giải phóng camera của cả hai màn hình trước khi thoát
+        self.practice_screen.disconnect_camera()
+        self.trung_lien_screen.disconnect_camera()
+
         if self.bt_trigger:
             self.bt_trigger.stop_global_listener()
         if self.processing_thread.isRunning():
@@ -259,6 +264,7 @@ class ApplicationController(QMainWindow):
                 self.processing_thread.terminate()
 
     def show_trung_lien_screen(self):
+        self.trung_lien_screen.start_camera()
         self.stacked_widget.setCurrentWidget(self.trung_lien_screen)
 
     def show_main_menu(self):
@@ -268,7 +274,7 @@ class ApplicationController(QMainWindow):
             self.practice_screen.shutdown_components()
 
         elif current_widget == self.trung_lien_screen:
-            self.trung_lien_screen.reset_ui_state()
+            self.trung_lien_screen.shutdown_components()
 
         self.stacked_widget.setCurrentWidget(self.main_menu)
 

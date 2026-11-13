@@ -103,55 +103,55 @@ class MainGui(QWidget):
             QFrame#panel {{
                 background-color: {COLORS['surface']};
                 border: 1px solid {COLORS['border']};
-                border-radius: {s(18)}px;
+                border-radius: {s(14)}px;
             }}
             QLabel#screenTitle {{
                 color: {COLORS['text']};
-                font-size: {f(22)}px;
+                font-size: {f(18)}px;
                 font-weight: 800;
-                padding: {s(4)}px;
+                padding: {s(2)}px;
                 background: transparent;
             }}
             QLabel.panel-title {{
                 color: {COLORS['primary']};
                 background-color: {COLORS['primary_soft']};
                 border: 1px solid #D9E5FF;
-                border-radius: {s(10)}px;
-                padding: {s(9)}px {s(16)}px;
-                font-size: {f(14)}px;
+                border-radius: {s(8)}px;
+                padding: {s(5)}px {s(12)}px;
+                font-size: {f(11)}px;
                 font-weight: 700;
             }}
-            QLabel#timeLabel, QLabel#targetNameLabel, QLabel#scoreLabel {{
+            QLabel#targetNameLabel, QLabel#scoreLabel {{
                 color: {COLORS['text']};
                 background-color: {COLORS['surface_soft']};
                 border: 1px solid {COLORS['border']};
-                border-radius: {s(10)}px;
-                padding: {s(11)}px {s(13)}px;
-                font-size: {f(12)}px;
+                border-radius: {s(8)}px;
+                padding: {s(6)}px {s(8)}px;
+                font-size: {f(10)}px;
                 font-weight: 600;
             }}
             QLabel#scoreLabel {{
                 color: {COLORS['primary']};
                 background-color: {COLORS['primary_soft']};
                 border-color: #D9E5FF;
-                font-size: {f(14)}px;
+                font-size: {f(11)}px;
                 font-weight: 800;
             }}
             QLabel#resultImageTitle {{
                 color: {COLORS['text_secondary']};
-                font-size: {f(11)}px;
+                font-size: {f(10)}px;
                 font-weight: 700;
                 background: transparent;
-                padding-top: {s(4)}px;
+                padding-top: {s(2)}px;
             }}
             QPushButton {{
-                min-height: {s(40)}px;
-                padding: {s(8)}px {s(15)}px;
+                min-height: {s(30)}px;
+                padding: {s(4)}px {s(12)}px;
                 color: #FFFFFF;
                 background-color: {COLORS['primary']};
                 border: 0;
-                border-radius: {s(10)}px;
-                font-size: {f(11)}px;
+                border-radius: {s(8)}px;
+                font-size: {f(10)}px;
                 font-weight: 700;
             }}
             QPushButton:hover {{
@@ -178,13 +178,13 @@ class MainGui(QWidget):
                 border-color: {COLORS['danger']};
             }}
             QPushButton#refreshButton {{
-                min-width: {s(78)}px;
-                min-height: {s(36)}px;
-                padding: {s(6)}px {s(11)}px;
+                min-width: {s(64)}px;
+                min-height: {s(28)}px;
+                padding: {s(4)}px {s(10)}px;
                 color: {COLORS['text']};
                 background-color: {COLORS['surface_soft']};
                 border: 1px solid {COLORS['border_strong']};
-                border-radius: {s(9)}px;
+                border-radius: {s(8)}px;
             }}
             QPushButton#refreshButton:hover {{
                 color: {COLORS['primary']};
@@ -197,13 +197,14 @@ class MainGui(QWidget):
                 border: 1px solid #F1D9A8;
             }}
             QComboBox {{
-                min-height: {s(36)}px;
-                min-width: {s(125)}px;
-                padding: {s(4)}px {s(10)}px;
+                min-height: {s(28)}px;
+                min-width: {s(110)}px;
+                padding: {s(2)}px {s(8)}px;
                 color: {COLORS['text']};
                 background-color: {COLORS['surface']};
                 border: 1px solid {COLORS['border_strong']};
-                border-radius: {s(9)}px;
+                border-radius: {s(8)}px;
+                font-size: {f(10)}px;
                 selection-background-color: {COLORS['primary']};
             }}
             QComboBox:hover {{
@@ -213,7 +214,7 @@ class MainGui(QWidget):
                 border: 1px solid {COLORS['primary']};
             }}
             QComboBox::drop-down {{
-                width: {s(27)}px;
+                width: {s(24)}px;
                 border: 0;
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
@@ -225,42 +226,42 @@ class MainGui(QWidget):
                 selection-background-color: {COLORS['primary_soft']};
                 selection-color: {COLORS['primary']};
                 outline: 0;
-                padding: {s(4)}px;
+                padding: {s(3)}px;
             }}
             QSlider::groove:horizontal {{
-                height: {s(6)}px;
+                height: {s(5)}px;
                 background: #E7ECF4;
                 border: 0;
-                border-radius: {s(3)}px;
-                margin: {s(5)}px 0;
+                border-radius: {s(2)}px;
+                margin: {s(4)}px 0;
             }}
             QSlider::sub-page:horizontal {{
                 background: {COLORS['primary']};
-                border-radius: {s(3)}px;
+                border-radius: {s(2)}px;
             }}
             QSlider::add-page:horizontal {{
                 background: #E7ECF4;
-                border-radius: {s(3)}px;
+                border-radius: {s(2)}px;
             }}
             QSlider::handle:horizontal {{
-                width: {s(17)}px;
-                height: {s(17)}px;
-                margin: -{s(6)}px 0;
+                width: {s(13)}px;
+                height: {s(13)}px;
+                margin: -{s(5)}px 0;
                 background: #FFFFFF;
-                border: 3px solid {COLORS['primary']};
-                border-radius: {s(10)}px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: {s(8)}px;
             }}
             QSlider::handle:horizontal:hover {{
                 background: {COLORS['primary_soft']};
                 border-color: {COLORS['primary_hover']};
             }}
             QLabel#zoomValueLabel {{
-                min-width: {s(48)}px;
+                min-width: {s(40)}px;
                 color: {COLORS['primary']};
                 background-color: {COLORS['primary_soft']};
-                border-radius: {s(8)}px;
-                padding: {s(5)}px;
-                font-size: {f(11)}px;
+                border-radius: {s(7)}px;
+                padding: {s(3)}px;
+                font-size: {f(10)}px;
                 font-weight: 800;
             }}
             VideoLabel {{
@@ -270,23 +271,23 @@ class MainGui(QWidget):
                 border-radius: {s(13)}px;
                 font-size: {f(13)}px;
                 font-weight: 600;
-                padding: {s(4)}px;
+                padding: {s(3)}px;
             }}
             QGroupBox {{
                 color: {COLORS['text']};
                 background-color: {COLORS['surface']};
                 border: 1px solid {COLORS['border']};
-                border-radius: {s(13)}px;
-                margin-top: {s(14)}px;
-                padding: {s(16)}px {s(12)}px {s(12)}px;
-                font-size: {f(13)}px;
+                border-radius: {s(10)}px;
+                margin-top: {s(10)}px;
+                padding: {s(10)}px {s(8)}px {s(8)}px;
+                font-size: {f(10)}px;
                 font-weight: 800;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
-                left: {s(14)}px;
-                padding: {s(3)}px {s(9)}px;
+                left: {s(10)}px;
+                padding: {s(1)}px {s(6)}px;
                 color: {COLORS['primary']};
                 background-color: {COLORS['surface']};
             }}
@@ -294,19 +295,20 @@ class MainGui(QWidget):
 
         # MAIN LAYOUT
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(s(22), s(18), s(22), s(22))
-        root_layout.setSpacing(s(16))
+        root_layout.setContentsMargins(s(14), s(10), s(14), s(12))
+        root_layout.setSpacing(s(8))
 
         title_label = QLabel("MÀN HÌNH TẬP LUYỆN")
         title_label.setObjectName("screenTitle")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont("Segoe UI", f(22), QFont.Bold))
+        title_label.setFont(QFont("Segoe UI", f(16), QFont.Bold))
         root_layout.addWidget(title_label)
 
+        # Tỷ lệ cột 6.5 : 3.5
         columns_layout = QHBoxLayout()
-        columns_layout.setSpacing(s(18))
-        columns_layout.addWidget(self._create_camera_column(), 6)
-        columns_layout.addWidget(self._create_right_column(), 4)
+        columns_layout.setSpacing(s(12))
+        columns_layout.addWidget(self._create_camera_column(), 13)
+        columns_layout.addWidget(self._create_right_column(), 7)
         root_layout.addLayout(columns_layout, 1)
 
     def _create_styled_panel(self) -> QFrame:
@@ -314,18 +316,18 @@ class MainGui(QWidget):
         panel.setObjectName("panel")
         add_soft_shadow(
             panel,
-            blur=scaled(28, self.scale_factor),
-            y_offset=scaled(7, self.scale_factor),
-            alpha=17,
+            blur=scaled(22, self.scale_factor),
+            y_offset=scaled(5, self.scale_factor),
+            alpha=15,
         )
         return panel
 
     def _create_camera_column(self) -> QWidget:
         panel = self._create_styled_panel()
-        margin = scaled(17, self.scale_factor)
+        margin = scaled(10, self.scale_factor)
         main_layout = QVBoxLayout(panel)
         main_layout.setContentsMargins(margin, margin, margin, margin)
-        main_layout.setSpacing(margin)
+        main_layout.setSpacing(scaled(8, self.scale_factor))
 
         # CAMERA TITLE
         title_widget = QWidget()
@@ -353,16 +355,16 @@ class MainGui(QWidget):
         controls_panel.setStyleSheet("background: transparent;")
         controls_layout = QHBoxLayout(controls_panel)
         controls_layout.setContentsMargins(
-            scaled(4, self.scale_factor),
-            scaled(5, self.scale_factor),
-            scaled(4, self.scale_factor),
+            scaled(2, self.scale_factor),
+            scaled(2, self.scale_factor),
+            scaled(2, self.scale_factor),
             0,
         )
-        controls_layout.setSpacing(scaled(9, self.scale_factor))
+        controls_layout.setSpacing(scaled(7, self.scale_factor))
 
         self.camera_selector = QComboBox()
         self.camera_selector.setPlaceholderText("Chọn Camera...")
-        self.camera_selector.setMinimumWidth(scaled(135, self.scale_factor))
+        self.camera_selector.setMinimumWidth(scaled(115, self.scale_factor))
         controls_layout.addWidget(self.camera_selector)
 
         self.refresh_button = QPushButton("Làm mới")
@@ -370,18 +372,19 @@ class MainGui(QWidget):
         self.refresh_button.setCursor(Qt.PointingHandCursor)
         controls_layout.addWidget(self.refresh_button)
 
-        controls_layout.addSpacing(scaled(5, self.scale_factor))
+        controls_layout.addSpacing(scaled(4, self.scale_factor))
 
         zoom_text_label = QLabel("Thu phóng")
         zoom_text_label.setStyleSheet(
-            f"color: {COLORS['text_secondary']}; font-weight: 600; background: transparent;"
+            f"color: {COLORS['text_secondary']}; font-weight: 600; "
+            "font-size: 11px; background: transparent;"
         )
 
         self.zoom_slider = QSlider(Qt.Horizontal)
         self.zoom_slider.setMinimum(10)
         self.zoom_slider.setMaximum(50)
         self.zoom_slider.setValue(10)
-        self.zoom_slider.setMinimumWidth(scaled(90, self.scale_factor))
+        self.zoom_slider.setMinimumWidth(scaled(80, self.scale_factor))
 
         self.zoom_value_label = QLabel("1.0x")
         self.zoom_value_label.setObjectName("zoomValueLabel")
@@ -405,29 +408,26 @@ class MainGui(QWidget):
 
     def _create_right_column(self) -> QWidget:
         panel = self._create_styled_panel()
-        margin = scaled(18, self.scale_factor)
+        margin = scaled(10, self.scale_factor)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(margin, margin, margin, margin)
-        layout.setSpacing(scaled(13, self.scale_factor))
+        layout.setSpacing(scaled(8, self.scale_factor))
 
         # RESULT GROUP
         result_box = QGroupBox("KẾT QUẢ GHI NHẬN")
         result_layout = QVBoxLayout(result_box)
         result_layout.setContentsMargins(
-            scaled(12, self.scale_factor),
-            scaled(18, self.scale_factor),
-            scaled(12, self.scale_factor),
-            scaled(12, self.scale_factor),
+            scaled(6, self.scale_factor),
+            scaled(6, self.scale_factor),
+            scaled(6, self.scale_factor),
+            scaled(6, self.scale_factor),
         )
-        result_layout.setSpacing(scaled(10, self.scale_factor))
+        result_layout.setSpacing(scaled(6, self.scale_factor))
 
         font_info = QFont(
             "Segoe UI",
-            max(9, scaled(11, self.scale_factor)),
+            max(9, scaled(10, self.scale_factor)),
         )
-
-        self.time_label = QLabel("Thời gian: --:--:--")
-        self.time_label.setObjectName("timeLabel")
 
         self.target_name_label = QLabel("Tên mục tiêu: --")
         self.target_name_label.setObjectName("targetNameLabel")
@@ -435,10 +435,14 @@ class MainGui(QWidget):
         self.score_label = QLabel("Kết quả: --")
         self.score_label.setObjectName("scoreLabel")
 
-        for label in (self.time_label, self.target_name_label, self.score_label):
+        # Tên mục tiêu và kết quả nằm chung một dòng để nhường chỗ cho ảnh
+        info_row = QHBoxLayout()
+        info_row.setSpacing(scaled(6, self.scale_factor))
+        for label in (self.target_name_label, self.score_label):
             label.setFont(font_info)
             label.setWordWrap(True)
-            result_layout.addWidget(label)
+            info_row.addWidget(label, 1)
+        result_layout.addLayout(info_row)
 
         result_image_title = QLabel("HÌNH ẢNH KẾT QUẢ")
         result_image_title.setObjectName("resultImageTitle")
@@ -484,18 +488,21 @@ class MainGui(QWidget):
         self.camera_view_label.setPixmap(QPixmap())
         self.camera_view_label.setText(message)
 
-    def update_results(self, time_str, target_name, score, result_frame):
-        self.time_label.setText(f"Thời gian: {time_str}")
+    def update_results(self, target_name, score, result_frame):
         self.target_name_label.setText(f"Tên mục tiêu: {target_name}")
         self.score_label.setText(f"Kết quả: {score}")
+
+        pad_v = scaled(6, self.scale_factor)
+        pad_h = scaled(8, self.scale_factor)
+        radius = scaled(8, self.scale_factor)
 
         if score == "TRÚNG":
             self.score_label.setStyleSheet(f"""
                 color: {COLORS['success']};
                 background-color: {COLORS['success_soft']};
                 border: 1px solid #BFE9D8;
-                border-radius: 10px;
-                padding: 11px 13px;
+                border-radius: {radius}px;
+                padding: {pad_v}px {pad_h}px;
                 font-weight: 800;
             """)
         elif score == "TRƯỢT":
@@ -503,8 +510,8 @@ class MainGui(QWidget):
                 color: {COLORS['danger']};
                 background-color: {COLORS['danger_soft']};
                 border: 1px solid #F3D2D2;
-                border-radius: 10px;
-                padding: 11px 13px;
+                border-radius: {radius}px;
+                padding: {pad_v}px {pad_h}px;
                 font-weight: 800;
             """)
         else:
