@@ -1,8 +1,5 @@
-"""Bộ nhận diện giao diện sáng cho ứng dụng B41.
-
-Chỉ sử dụng Qt Style Sheet và font có sẵn trên hệ điều hành.
-Không tải font, stylesheet, icon hoặc tài nguyên từ Internet;
-ứng dụng có thể hoạt động hoàn toàn offline.
+"""B41 - Modern Light UI Theme.
+Giao diện sử dụng hoàn toàn tài nguyên Qt có sẵn, không cần Internet.
 """
 
 from PySide6.QtGui import QColor
@@ -32,46 +29,42 @@ COLORS = {
     "video_background": "#101828",
 }
 
-
-def scaled(base_value: int, scale_factor: float, minimum: int = 1) -> int:
-    """Tính kích thước theo màn hình."""
-    return max(minimum, int(round(base_value * scale_factor)))
+FONT_FAMILY = "'Segoe UI', 'Aptos', 'Arial', sans-serif"
 
 
-def add_soft_shadow(widget, blur: int = 28, y_offset: int = 7, alpha: int = 18):
-    """Thêm bóng đổ nhẹ cho panel."""
-    effect = QGraphicsDropShadowEffect(widget)
-    effect.setBlurRadius(blur)
-    effect.setColor(QColor(15, 23, 42, alpha))
-    effect.setOffset(0, y_offset)
-    widget.setGraphicsEffect(effect)
-    return effect
+def scaled(value: int, factor: float, minimum: int = 1) -> int:
+    """Tính kích thước theo tỷ lệ màn hình."""
+    return max(minimum, round(value * factor))
+
+
+def add_soft_shadow(widget, blur=28, y_offset=7, alpha=18):
+    """Tạo hiệu ứng bóng đổ nhẹ cho panel."""
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(blur)
+    shadow.setColor(QColor(15, 23, 42, alpha))
+    shadow.setOffset(0, y_offset)
+    widget.setGraphicsEffect(shadow)
+    return shadow
 
 
 def application_stylesheet() -> str:
-    """QSS dùng chung cho hộp thoại và widget chưa có stylesheet riêng."""
-
+    """Style dùng chung cho các hộp thoại và widget Qt."""
     c = COLORS
-
     return f"""
         QWidget {{
             color: {c['text']};
-            font-family: 'Segoe UI', 'Aptos', 'Arial', sans-serif;
+            font-family: {FONT_FAMILY};
             font-size: 10pt;
         }}
-
         QDialog, QMessageBox, QInputDialog {{
             background-color: {c['surface']};
         }}
-
         QMessageBox QLabel, QInputDialog QLabel {{
             color: {c['text']};
             background: transparent;
             min-width: 280px;
         }}
-
-        QMessageBox QPushButton,
-        QDialogButtonBox QPushButton {{
+        QMessageBox QPushButton, QDialogButtonBox QPushButton {{
             min-width: 88px;
             min-height: 34px;
             padding: 6px 16px;
@@ -81,13 +74,10 @@ def application_stylesheet() -> str:
             border-radius: 9px;
             font-weight: 600;
         }}
-
-        QMessageBox QPushButton:hover,
-        QDialogButtonBox QPushButton:hover {{
+        QMessageBox QPushButton:hover, QDialogButtonBox QPushButton:hover {{
             background: {c['surface_hover']};
             border-color: {c['border_strong']};
         }}
-
         QLineEdit, QSpinBox, QDoubleSpinBox {{
             min-height: 34px;
             padding: 5px 10px;
@@ -98,13 +88,9 @@ def application_stylesheet() -> str:
             selection-background-color: {c['primary']};
             selection-color: white;
         }}
-
-        QLineEdit:focus,
-        QSpinBox:focus,
-        QDoubleSpinBox:focus {{
+        QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
             border: 1px solid {c['primary']};
         }}
-
         QToolTip {{
             color: white;
             background: #263449;
@@ -112,43 +98,34 @@ def application_stylesheet() -> str:
             border-radius: 6px;
             padding: 6px 9px;
         }}
-
         QScrollBar:vertical {{
             width: 9px;
             background: transparent;
             margin: 2px;
         }}
-
         QScrollBar::handle:vertical {{
             min-height: 28px;
             background: #C7D2E1;
             border-radius: 4px;
         }}
-
         QScrollBar::handle:vertical:hover {{
             background: #94A3B8;
         }}
-
-        QScrollBar::add-line:vertical,
-        QScrollBar::sub-line:vertical {{
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
             height: 0;
             background: transparent;
         }}
-
         QScrollBar:horizontal {{
             height: 9px;
             background: transparent;
             margin: 2px;
         }}
-
         QScrollBar::handle:horizontal {{
             min-width: 28px;
             background: #C7D2E1;
             border-radius: 4px;
         }}
-
-        QScrollBar::add-line:horizontal,
-        QScrollBar::sub-line:horizontal {{
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
             width: 0;
             background: transparent;
         }}

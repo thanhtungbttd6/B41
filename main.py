@@ -32,6 +32,7 @@ from core.triggers import BluetoothTrigger
 from core.worker import ProcessingWorker
 from gui.windows.main_menu_window import MainMenuWindow
 from gui.windows.practice_window import PracticeWindow
+from gui.windows.trung_lien_window import TrungLienWindow
 from utils.license_manager import verify_key
 from utils.resource_path import resource_path
 
@@ -176,11 +177,13 @@ class ApplicationController(QMainWindow):
             worker=self.processing_worker, trigger=self.bt_trigger, config=self.config
         )
 
+        self.trung_lien_screen = TrungLienWindow(config=self.config)
+
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
         self.stacked_widget.addWidget(self.main_menu)
         self.stacked_widget.addWidget(self.practice_screen)
-
+        self.stacked_widget.addWidget(self.trung_lien_screen)
         self.connect_signals()
 
         self.processing_thread.start()
@@ -235,6 +238,7 @@ class ApplicationController(QMainWindow):
 
     def connect_signals(self):
         self.main_menu.practice_button.clicked.connect(self.show_practice_screen)
+        self.main_menu.trung_lien_button.clicked.connect(self.show_trung_lien_screen)
         self.practice_screen.gui.back_button.clicked.connect(self.show_main_menu)
         self.main_menu.exit_button.clicked.connect(self.close)
 
@@ -254,9 +258,18 @@ class ApplicationController(QMainWindow):
             if not self.processing_thread.wait(3000):
                 self.processing_thread.terminate()
 
+    def show_trung_lien_screen(self):
+        self.stacked_widget.setCurrentWidget(self.trung_lien_screen)
+
     def show_main_menu(self):
-        if self.stacked_widget.currentWidget() == self.practice_screen:
+        current_widget = self.stacked_widget.currentWidget()
+
+        if current_widget == self.practice_screen:
             self.practice_screen.shutdown_components()
+
+        elif current_widget == self.trung_lien_screen:
+            self.trung_lien_screen.reset_ui_state()
+
         self.stacked_widget.setCurrentWidget(self.main_menu)
 
     def show_practice_screen(self):
