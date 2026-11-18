@@ -177,7 +177,9 @@ class ApplicationController(QMainWindow):
             worker=self.processing_worker, trigger=self.bt_trigger, config=self.config
         )
 
-        self.trung_lien_screen = TrungLienWindow(config=self.config)
+        self.trung_lien_screen = TrungLienWindow(
+            config=self.config, trigger=self.bt_trigger
+        )
 
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
@@ -249,7 +251,21 @@ class ApplicationController(QMainWindow):
         self.processing_worker.finished.connect(
             self.practice_screen.on_processing_finished
         )
-        self.bt_trigger.triggered.connect(self.practice_screen.capture_photo)
+
+        # Tín hiệu bóp cò (bắn đơn) được chuyển đến màn hình đang hiển thị
+        self.bt_trigger.triggered.connect(self.on_trigger_fired)
+        # Tín hiệu đè cò / nhả cò dành cho liên thanh của Trung liên
+        self.bt_trigger.pressed.connect(self.trung_lien_screen.on_trigger_pressed)
+        self.bt_trigger.released.connect(self.trung_lien_screen.on_trigger_released)
+
+    def on_trigger_fired(self):
+        """Chuyển tín hiệu bóp cò đến đúng màn hình luyện tập đang mở."""
+        current_widget = self.stacked_widget.currentWidget()
+
+        if current_widget == self.practice_screen:
+            self.practice_screen.capture_photo()
+        elif current_widget == self.trung_lien_screen:
+            self.trung_lien_screen.on_trigger_single()
 
     def cleanup_before_exit(self):
         # Giải phóng camera của cả hai màn hình trước khi thoát

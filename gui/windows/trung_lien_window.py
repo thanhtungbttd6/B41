@@ -2,12 +2,15 @@
 
 import logging
 import time
+from datetime import datetime
 
 import cv2
-from PySide6.QtCore import QPoint, QTimer
+import numpy as np
+from PySide6.QtCore import QPoint, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QMainWindow
 
+from utils.audio import AudioManager
 from utils.camera import Camera, find_available_cameras
 
 from ..ui.ui_trung_lien import TrungLienGui
@@ -16,12 +19,21 @@ logger = logging.getLogger(__name__)
 
 
 class TrungLienWindow(QMainWindow):
-    """Cửa sổ giao diện Trung liên: camera, zoom, hiệu chỉnh tâm (giống B41)."""
+    """Cửa sổ giao diện Trung liên: camera, zoom, hiệu chỉnh tâm, bắn đơn/liên thanh."""
 
-    def __init__(self, config=None):
+    # Gửi ảnh đến worker nhận diện (chỉ dùng ở chế độ phát một)
+    request_processing = Signal(np.ndarray, object, str)
+
+    # Giới hạn số viên tối đa trong một loạt bắn (chống đè cò)
+    MAX_BURST_SHOTS = 7
+    # Chu kỳ kiểm tra thời điểm bắn của liên thanh (ms)
+    BURST_TICK_MS = 5
+
+    def __init__(self, config=None, trigger=None):
         super().__init__()
 
         self.config = config or {}
+        self.bt_trigger = trigger
         self.gui = TrungLienGui()
 
         self.setWindowTitle("LUYỆN TẬP TRUNG LIÊN")
@@ -44,6 +56,27 @@ class TrungLienWindow(QMainWindow):
 
         self.video_timer = QTimer(self)
 
+        # --- TRẠNG THÁI BẮN ---
+        self.audio_manager = AudioManager()
+        self._screen_active = False
+
+        # Mã phát bắn đơn đang chờ kết quả nhận diện (None = không chờ)
+        self._last_single_timestamp = None
+
+        # Các phát đã chụp của loạt bắn hiện tại
+        self.shot_results = []
+        self.current_shot_index = -1
+
+        # Trạng thái loạt bắn liên thanh
+        self._burst_active = False
+        self._burst_interval = 0.0
+        self._burst_start_time = 0.0
+        self._burst_shots_fired = 0
+        self.burst_timer = QTimer(self)
+        self.burst_timer.setTimerType(Qt.PreciseTimer)
+        self.burst_timer.setInterval(self.BURST_TICK_MS)
+        self.burst_timer.timeout.connect(self._on_burst_tick)
+
         # --- KẾT NỐI TÍN HIỆU CAMERA ---
         self.video_timer.timeout.connect(self.update_frame)
         self.gui.calibrate_button.clicked.connect(self.toggle_calibration_mode)
@@ -52,6 +85,10 @@ class TrungLienWindow(QMainWindow):
         self.gui.camera_selector.currentIndexChanged.connect(self.on_camera_selected)
         self.gui.refresh_button.clicked.connect(self.refresh_camera_list)
         self.gui.camera_view_label.clicked.connect(self.set_new_center)
+
+        # --- KẾT NỐI ĐIỀU HƯỚNG ẢNH KẾT QUẢ ---
+        self.gui.prev_shot_button.clicked.connect(self.show_previous_shot)
+        self.gui.next_shot_button.clicked.connect(self.show_next_shot)
 
         logger.info("Đã khởi tạo giao diện Trung liên.")
 
@@ -101,7 +138,10 @@ class TrungLienWindow(QMainWindow):
         self.gui.camera_selector.blockSignals(False)
 
     def start_camera(self):
-        logger.info("Màn hình Trung liên: kích hoạt camera...")
+        logger.info("Màn hình Trung liên: kích hoạt camera và trigger...")
+        self._screen_active = True
+        if self.bt_trigger:
+            self.bt_trigger.activate()
         self.refresh_camera_list()
 
     # ==============================================
@@ -138,6 +178,7 @@ class TrungLienWindow(QMainWindow):
             self.disconnect_camera("Camera không phản hồi hình ảnh")
 
     def disconnect_camera(self, message="Vui lòng chọn camera"):
+        self._finish_burst()
         self.video_timer.stop()
         if self.cam:
             self.cam.release()
@@ -265,19 +306,246 @@ class TrungLienWindow(QMainWindow):
         self.zoom_level = value / 10.0
 
     # ==============================================
+    # SHOOTING: TRIGGER HANDLERS
+    # ==============================================
+
+    def _can_shoot(self) -> bool:
+        """Kiểm tra điều kiện để chụp một phát."""
+        if not self._screen_active:
+            return False
+        if not self.is_camera_connected:
+            logger.warning("Trung liên: bắn bị chặn vì camera chưa kết nối.")
+            return False
+        if self.clean_zoomed_frame_for_processing is None:
+            logger.error("Trung liên: chưa có khung hình sạch để chụp.")
+            return False
+        return True
+
+    @Slot()
+    def on_trigger_single(self):
+        """Bóp cò ở chế độ bắn đơn (Liên thanh TẮT): chụp 1 phát, nhận diện, báo kết quả."""
+        if self.gui.is_burst_enabled() or self._burst_active:
+            return
+        if not self._can_shoot():
+            return
+
+        self.shot_results = []
+        self.current_shot_index = -1
+        self._last_single_timestamp = None
+        self.gui.target_name_label.setText("Tên mục tiêu: --")
+        self.gui.score_label.setText("Kết quả: --")
+
+        if not self._capture_shot(single=True):
+            return
+
+        shot = self.shot_results[-1]
+        self._last_single_timestamp = shot["timestamp"]
+        # Gửi bản sao để worker không vẽ đè lên ảnh sạch đã lưu
+        self.request_processing.emit(
+            shot["frame"].copy(), shot["point"], shot["timestamp"]
+        )
+
+    @Slot(dict)
+    def on_processing_finished(self, result):
+        """Nhận kết quả nhận diện của phát bắn đơn và đọc thông báo Trúng/Trượt."""
+        if not self._screen_active:
+            return
+        # Bỏ qua kết quả không phải của phát bắn đơn hiện tại
+        # (kết quả của B41, của phát cũ, hoặc khi đã chuyển sang liên thanh)
+        if (
+            self._last_single_timestamp is None
+            or result.get("image_path") != self._last_single_timestamp
+        ):
+            return
+
+        score = result.get("score", 0)
+        if score == 1:
+            self.audio_manager.enqueue_sounds(["hit"])
+            score_text = "TRÚNG"
+        else:
+            self.audio_manager.enqueue_sounds(["miss"])
+            score_text = "TRƯỢT"
+
+        self.gui.target_name_label.setText(f"Tên mục tiêu: {result.get('target_name')}")
+        self.gui.score_label.setText(f"Kết quả: {score_text}")
+
+        result_frame = result.get("result_frame")
+        if result_frame is not None:
+            self.gui.show_result_image(result_frame)
+
+    @Slot()
+    def on_trigger_pressed(self):
+        """Bắt đầu đè cò: nếu Liên thanh BẬT thì khởi động loạt bắn."""
+        if not self._screen_active:
+            return
+        if not self.gui.is_burst_enabled() or self._burst_active:
+            return
+        if not self._can_shoot():
+            return
+        self._start_burst()
+
+    @Slot()
+    def on_trigger_released(self):
+        """Nhả cò: kết thúc loạt bắn đang chạy (nếu có)."""
+        if self._burst_active:
+            logger.info(
+                f"Trung liên: nhả cò, kết thúc loạt bắn ({self._burst_shots_fired} viên)."
+            )
+            self._finish_burst()
+
+    # ==============================================
+    # SHOOTING: BURST MECHANISM
+    # ==============================================
+
+    def _start_burst(self):
+        rate = max(1, self.gui.rate_slider.value())  # viên/phút
+        self._burst_interval = 60.0 / rate  # giây giữa hai viên
+        self._burst_shots_fired = 0
+        self._burst_active = True
+
+        self.shot_results = []
+        self.current_shot_index = -1
+
+        # Liên thanh không nhận diện: bỏ kết quả bắn đơn cũ (nếu còn chờ)
+        self._last_single_timestamp = None
+        self.audio_manager.stop_sequence()
+        self.gui.target_name_label.setText("Tên mục tiêu: --")
+        self.gui.score_label.setText("Kết quả: --")
+
+        logger.info(
+            f"Trung liên: bắt đầu loạt bắn {rate} viên/phút "
+            f"(tối đa {self.MAX_BURST_SHOTS} viên)."
+        )
+
+        self._burst_start_time = time.perf_counter()
+        self.burst_timer.start()
+        # Viên đầu tiên bắn ngay khi bóp cò
+        self._on_burst_tick()
+
+    def _on_burst_tick(self):
+        """Bắn viên kế tiếp khi đến thời điểm tương ứng với tốc độ bắn.
+
+        Dùng mốc thời gian tuyệt đối thay vì cộng dồn khoảng trễ của timer,
+        nên tốc độ trung bình luôn đúng với giá trị trên thanh kéo.
+        """
+        if not self._burst_active:
+            return
+
+        elapsed = time.perf_counter() - self._burst_start_time
+        shots_due = int(elapsed / self._burst_interval) + 1
+
+        if (
+            shots_due > self._burst_shots_fired
+            and self._burst_shots_fired < self.MAX_BURST_SHOTS
+        ):
+            if self._capture_shot():
+                self._burst_shots_fired += 1
+            else:
+                # Không chụp được (mất camera/khung hình) -> dừng loạt bắn
+                self._finish_burst()
+                return
+
+        if self._burst_shots_fired >= self.MAX_BURST_SHOTS:
+            logger.info(
+                f"Trung liên: đạt giới hạn {self.MAX_BURST_SHOTS} viên/loạt, "
+                "bỏ qua phần đè cò còn lại."
+            )
+            self._finish_burst()
+
+    def _finish_burst(self):
+        """Dừng loạt bắn (an toàn khi gọi nhiều lần)."""
+        self.burst_timer.stop()
+        self._burst_active = False
+
+    # ==============================================
+    # SHOOTING: CAPTURE & RESULT DISPLAY
+    # ==============================================
+
+    def _capture_shot(self, single=False) -> bool:
+        """Chụp một phát: phát tiếng nổ, lưu khung hình sạch và hiển thị.
+
+        single=True (bắn đơn): tiếng nổ phát trên kênh nối tiếp để thông báo
+        Trúng/Trượt được đọc sau khi tiếng nổ kết thúc.
+        single=False (liên thanh): phát tiếng nổ chồng lên nhau, không báo kết quả.
+        """
+        frame = self.clean_zoomed_frame_for_processing
+        if frame is None:
+            return False
+
+        if single:
+            shot_name = (
+                "trung_lien_shot"
+                if self.audio_manager.has_sound("trung_lien_shot")
+                else "shot"
+            )
+            self.audio_manager.start_sequence([shot_name])
+        else:
+            self.audio_manager.play_trung_lien_shot()
+
+        self.shot_results.append(
+            {
+                "frame": frame.copy(),  # ảnh sạch, dùng cho nhận diện
+                "point": self.shot_point_on_zoomed_frame,
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3],
+            }
+        )
+        self.current_shot_index = len(self.shot_results) - 1
+        self._refresh_result_view()
+        return True
+
+    def _refresh_result_view(self):
+        """Hiển thị phát đang chọn lên khung kết quả và cập nhật điều hướng."""
+        total = len(self.shot_results)
+        if total == 0 or not (0 <= self.current_shot_index < total):
+            self.gui.clear_result_image()
+            return
+
+        shot = self.shot_results[self.current_shot_index]
+        image = shot["frame"].copy()
+        if shot["point"]:
+            cv2.drawMarker(
+                image,
+                shot["point"],
+                (0, 0, 255),
+                cv2.MARKER_CROSS,
+                15,
+                1,
+            )
+
+        self.gui.show_result_image(image)
+        self.gui.set_shot_navigation(self.current_shot_index, total)
+
+    def show_previous_shot(self):
+        if self.current_shot_index > 0:
+            self.current_shot_index -= 1
+            self._refresh_result_view()
+
+    def show_next_shot(self):
+        if self.current_shot_index < len(self.shot_results) - 1:
+            self.current_shot_index += 1
+            self._refresh_result_view()
+
+    # ==============================================
     # LIFECYCLE
     # ==============================================
 
     def shutdown_components(self):
-        """Ngắt camera và đưa giao diện về trạng thái ban đầu khi rời màn hình."""
+        """Ngắt camera, tắt trigger và đưa giao diện về trạng thái ban đầu."""
+        self._screen_active = False
+        self._last_single_timestamp = None
+        self._finish_burst()
+        self.audio_manager.stop_sequence()
         self.disconnect_camera("Camera Trung liên chưa được kết nối")
+        if self.bt_trigger:
+            self.bt_trigger.deactivate()
         self.reset_ui_state()
 
     def reset_ui_state(self):
         """Đưa giao diện về trạng thái ban đầu."""
+        self.shot_results = []
+        self.current_shot_index = -1
 
         self.gui.target_name_label.setText("Tên mục tiêu: --")
         self.gui.score_label.setText("Kết quả: --")
 
-        self.gui.result_image_label.setPixmap(QPixmap())
-        self.gui.result_image_label.setText("Chưa có ảnh kết quả")
+        self.gui.clear_result_image()

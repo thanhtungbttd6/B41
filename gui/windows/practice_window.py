@@ -52,6 +52,9 @@ class PracticeWindow(QMainWindow):
         self.clean_zoomed_frame_for_processing = None
         self.shot_point_on_zoomed_frame = None
 
+        # Mã phát bắn gần nhất: chỉ kết quả của phát này mới được đọc thông báo
+        self._last_shot_timestamp = None
+
         self.audio_manager = AudioManager()
         self.video_timer = QTimer(self)
 
@@ -231,12 +234,14 @@ class PracticeWindow(QMainWindow):
 
         shot_center_for_analysis = self.shot_point_on_zoomed_frame
 
-        # Tiếng nổ
-        self.audio_manager.play_shot()
-
         # SỬA LỖI: KHÔNG dùng _pixmap.toImage() nữa để tránh dính ảnh tâm đỏ.
         # Tạo thẳng mã Timestamp và truyền cho Worker tự xử lý việc lưu ảnh Dataset.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        self._last_shot_timestamp = timestamp
+
+        # Trình tự âm thanh: tiếng bắn -> tiếng nổ -> (khi có kết quả) thông báo
+        self.audio_manager.start_sequence(["shot", "explosion"])
+
         self.request_processing.emit(
             frame_for_analysis, shot_center_for_analysis, timestamp
         )
@@ -247,12 +252,21 @@ class PracticeWindow(QMainWindow):
         score = result.get("score", 0)
         final_image_to_display = result.get("result_frame")
 
-        # XỬ LÝ KẾT QUẢ VÀ ÂM THANH
+        # Thông báo kết quả được xếp hàng phía sau tiếng bắn và tiếng nổ.
+        # Bỏ qua âm thanh của kết quả cũ (đã có phát bắn mới hơn) hoặc khi
+        # đã rời màn hình luyện tập.
+        is_current_shot = (
+            self._last_shot_timestamp is not None
+            and result.get("image_path") == self._last_shot_timestamp
+        )
+
         if score == 1:
-            self.audio_manager.play_hit()
+            if is_current_shot:
+                self.audio_manager.enqueue_sounds(["hit"])
             display_score_text = "TRÚNG"
         else:
-            self.audio_manager.play_miss()
+            if is_current_shot:
+                self.audio_manager.enqueue_sounds(["miss"])
             display_score_text = "TRƯỢT"
 
         self.gui.update_results(
@@ -262,6 +276,8 @@ class PracticeWindow(QMainWindow):
         )
 
     def shutdown_components(self):
+        self._last_shot_timestamp = None
+        self.audio_manager.stop_sequence()
         self.disconnect_camera()
         if self.bt_trigger:
             self.bt_trigger.deactivate()

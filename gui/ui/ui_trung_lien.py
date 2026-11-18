@@ -106,6 +106,38 @@ class TrungLienVideoLabel(QLabel):
         painter.drawPixmap(x, y, scaled_pixmap)
 
 
+class ResultImageLabel(QLabel):
+    """Khung hiển thị ảnh kết quả, tự co giãn giữ nguyên tỷ lệ ảnh."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pixmap = QPixmap()
+        self.setAlignment(Qt.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+    def setPixmap(self, pixmap):
+        self._pixmap = pixmap
+        self.update()
+
+    def paintEvent(self, event):
+        # Vẽ nền, viền và chữ gợi ý trước
+        super().paintEvent(event)
+
+        if self._pixmap.isNull():
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        scaled_pixmap = self._pixmap.scaled(
+            self.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        x = (self.width() - scaled_pixmap.width()) // 2
+        y = (self.height() - scaled_pixmap.height()) // 2
+        painter.drawPixmap(x, y, scaled_pixmap)
+
+
 class TrungLienGui(QWidget):
     """Giao diện thiết lập và luyện tập Trung liên."""
 
@@ -206,6 +238,10 @@ class TrungLienGui(QWidget):
             QPushButton:hover {{
                 background-color: {COLORS['primary_hover']};
             }}
+            QPushButton:disabled {{
+                color: white;
+                background-color: #B8C4D6;
+            }}
             QPushButton#refreshButton {{
                 color: {COLORS['text']};
                 background-color: {COLORS['surface_soft']};
@@ -219,6 +255,14 @@ class TrungLienGui(QWidget):
             QPushButton#backButton:hover {{
                 color: white;
                 background-color: {COLORS['danger']};
+            }}
+            QPushButton#navButton {{
+                min-width: {s(26)}px;
+                max-width: {s(26)}px;
+                min-height: {s(60)}px;
+                padding: 0px;
+                font-size: {f(13)}px;
+                border-radius: {s(8)}px;
             }}
             QComboBox {{
                 min-height: {s(28)}px;
@@ -370,7 +414,7 @@ class TrungLienGui(QWidget):
         self.rate_slider.setValue(700)
         self.rate_slider.setSingleStep(10)
         self.rate_slider.setPageStep(50)
-        self.rate_slider.setToolTip("Tốc độ bắn mô phỏng (500 - 900)")
+        self.rate_slider.setToolTip("Tốc độ bắn (viên/phút): 500 - 900")
         rate_layout.addWidget(self.rate_slider, 1)
 
         self.rate_value_label = QLabel("700")
@@ -419,19 +463,53 @@ class TrungLienGui(QWidget):
         image_title.setObjectName("fieldLabel")
         result_layout.addWidget(image_title)
 
-        self.result_image_label = QLabel("Chưa có ảnh kết quả")
-        self.result_image_label.setAlignment(Qt.AlignCenter)
+        # Hàng ảnh kết quả: mũi tên trái | ảnh | mũi tên phải
+        image_row = QHBoxLayout()
+        image_row.setSpacing(scaled(4, self.scale_factor))
+
+        self.prev_shot_button = QPushButton("◀")
+        self.prev_shot_button.setObjectName("navButton")
+        self.prev_shot_button.setCursor(Qt.PointingHandCursor)
+        self.prev_shot_button.setToolTip("Phát trước")
+        image_row.addWidget(self.prev_shot_button, 0)
+
+        self.result_image_label = ResultImageLabel()
+        self.result_image_label.setText("Chưa có ảnh kết quả")
         self.result_image_label.setMinimumHeight(scaled(180, self.scale_factor))
-        self.result_image_label.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Expanding
-        )
         self.result_image_label.setStyleSheet(f"""
             background-color: {COLORS['surface_soft']};
             color: {COLORS['text_muted']};
             border: 1px dashed {COLORS['border_strong']};
             border-radius: {scaled(10, self.scale_factor)}px;
         """)
-        result_layout.addWidget(self.result_image_label, 1)
+        image_row.addWidget(self.result_image_label, 1)
+
+        self.next_shot_button = QPushButton("▶")
+        self.next_shot_button.setObjectName("navButton")
+        self.next_shot_button.setCursor(Qt.PointingHandCursor)
+        self.next_shot_button.setToolTip("Phát tiếp theo")
+        image_row.addWidget(self.next_shot_button, 0)
+
+        result_layout.addLayout(image_row, 1)
+
+        # Thông số "Phát x/tổng"
+        self.shot_counter_label = QLabel("Phát 1/1")
+        self.shot_counter_label.setObjectName("valueLabel")
+        self.shot_counter_label.setAlignment(Qt.AlignCenter)
+        self.shot_counter_label.setMinimumWidth(scaled(90, self.scale_factor))
+        result_layout.addWidget(self.shot_counter_label, 0, Qt.AlignHCenter)
+
+        # Giữ nguyên kích thước khi ẩn để ảnh không bị nhảy bố cục
+        for widget in (
+            self.prev_shot_button,
+            self.next_shot_button,
+            self.shot_counter_label,
+        ):
+            policy = widget.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            widget.setSizePolicy(policy)
+
+        self.set_shot_navigation(0, 0)
 
         layout.addWidget(result_box, 1)
 
@@ -471,6 +549,42 @@ class TrungLienGui(QWidget):
     def clear_video_feed(self, message: str):
         self.camera_view_label.setPixmap(QPixmap())
         self.camera_view_label.setText(message)
+
+    # ==============================================
+    # RESULT IMAGE & SHOT NAVIGATION
+    # ==============================================
+
+    def show_result_image(self, frame_bgr):
+        """Hiển thị ảnh kết quả (ảnh BGR của OpenCV) lên khung bên phải."""
+        pixmap = self._convert_cv_to_pixmap(frame_bgr)
+        if pixmap.isNull():
+            self.result_image_label.setPixmap(QPixmap())
+            self.result_image_label.setText("Không có ảnh kết quả")
+        else:
+            self.result_image_label.setText("")
+            self.result_image_label.setPixmap(pixmap)
+
+    def clear_result_image(self):
+        """Xóa ảnh kết quả và ẩn điều hướng."""
+        self.result_image_label.setPixmap(QPixmap())
+        self.result_image_label.setText("Chưa có ảnh kết quả")
+        self.set_shot_navigation(0, 0)
+
+    def set_shot_navigation(self, index: int, total: int):
+        """Cập nhật mũi tên và thông số 'Phát x/tổng'.
+
+        index: vị trí phát đang xem (tính từ 0). total: tổng số phát của loạt.
+        Chỉ hiện mũi tên và thông số khi loạt bắn có nhiều hơn 1 phát.
+        """
+        multi = total > 1
+        self.prev_shot_button.setVisible(multi)
+        self.next_shot_button.setVisible(multi)
+        self.shot_counter_label.setVisible(multi)
+
+        if multi:
+            self.shot_counter_label.setText(f"Phát {index + 1}/{total}")
+            self.prev_shot_button.setEnabled(index > 0)
+            self.next_shot_button.setEnabled(index < total - 1)
 
     # ==============================================
     # TRAINING SETTINGS
