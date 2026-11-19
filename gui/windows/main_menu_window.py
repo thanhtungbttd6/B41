@@ -32,6 +32,7 @@ class MainMenuWindow(QMainWindow):
         self.practice_button = self.ui.practice_button
         self.exit_button = self.ui.exit_button
         self.stats_button = self.ui.stats_button
+        self.model_button = self.ui.model_button
 
     # ==============================================
     # APPLICATION LABELS

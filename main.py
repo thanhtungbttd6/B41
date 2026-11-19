@@ -8,6 +8,7 @@ import sys
 
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QInputDialog,
     QMainWindow,
     QMessageBox,
@@ -24,7 +25,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 
 from config import APP_DATA_DIR
@@ -155,6 +156,9 @@ def check_or_request_license() -> bool:
 
 
 class ApplicationController(QMainWindow):
+    # Gửi đường dẫn file model mới sang worker (chạy ở luồng riêng)
+    model_update_requested = Signal(str)
+
     def __init__(self):
         super().__init__()
         self.config = self._load_config()
@@ -208,10 +212,36 @@ class ApplicationController(QMainWindow):
         if os.path.exists(dest_path):
             try:
                 with open(dest_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    config = json.load(f)
             except Exception as e:
                 logging.error(f"Lỗi đọc config.json: {e}")
+                return {}
+            self._merge_new_default_keys(config, dest_path)
+            return config
         return {}
+
+    def _merge_new_default_keys(self, config: dict, dest_path: str):
+        """
+        Bổ sung vào config.json trong AppData những khóa mới có ở config mặc định
+        (ví dụ công tắc lưu ảnh training sau khi cập nhật phần mềm).
+        Giá trị người dùng đã chỉnh được giữ nguyên.
+        """
+        try:
+            source_path = resource_path("config.json")
+            if not os.path.exists(source_path):
+                return
+            with open(source_path, "r", encoding="utf-8") as f:
+                defaults = json.load(f)
+            added = [k for k in defaults if k not in config]
+            if not added:
+                return
+            for key in added:
+                config[key] = defaults[key]
+            with open(dest_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=4)
+            logging.info(f"Đã bổ sung khóa mới vào config.json: {added}")
+        except Exception as e:
+            logging.error(f"Không thể bổ sung khóa config mới: {e}")
 
     def _ensure_assets_are_in_appdata(self):
         dest_assets_dir = os.path.join(APP_DATA_DIR, "assets")
@@ -244,6 +274,7 @@ class ApplicationController(QMainWindow):
     def connect_signals(self):
         self.main_menu.practice_button.clicked.connect(self.show_practice_screen)
         self.main_menu.stats_button.clicked.connect(self.show_manage_screen)
+        self.main_menu.model_button.clicked.connect(self.choose_model_file)
         self.practice_screen.gui.back_button.clicked.connect(self.show_main_menu)
         self.manage_screen.ui.back_button.clicked.connect(self.show_main_menu)
         self.main_menu.exit_button.clicked.connect(self.close)
@@ -256,6 +287,34 @@ class ApplicationController(QMainWindow):
         )
 
         self.bt_trigger.triggered.connect(self.practice_screen.capture_photo)
+
+        # Cập nhật model AI: chọn file ở luồng giao diện, nạp model ở luồng worker
+        self.model_update_requested.connect(self.processing_worker.reload_model)
+        self.processing_worker.model_update_finished.connect(
+            self.on_model_update_finished
+        )
+
+    def choose_model_file(self):
+        """Mở hộp thoại chọn file .pt mới và gửi sang worker để kiểm tra, nạp."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Chọn file model AI mới (.pt)",
+            "",
+            "Model YOLO (*.pt)",
+        )
+        if not file_path:
+            return
+        self.main_menu.model_button.setEnabled(False)
+        self.main_menu.model_button.setText("ĐANG CẬP NHẬT...")
+        self.model_update_requested.emit(file_path)
+
+    def on_model_update_finished(self, success: bool, message: str):
+        self.main_menu.model_button.setEnabled(True)
+        self.main_menu.model_button.setText("CẬP NHẬT MODEL AI")
+        if success:
+            QMessageBox.information(self, "Cập nhật model AI", message)
+        else:
+            QMessageBox.warning(self, "Cập nhật model AI", message)
 
     def cleanup_before_exit(self):
         # Giải phóng camera và đóng phiên đang dở (xóa phiên trống) trước khi thoát
