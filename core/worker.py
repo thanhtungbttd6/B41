@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # Số bản model cũ được giữ lại để có thể quay về khi model mới chạy không tốt
 MAX_MODEL_BACKUPS = 3
 
+# Kích thước ảnh nhận diện mặc định và giới hạn cho phép của khóa "yolo_imgsz"
+DEFAULT_IMGSZ = 320
+MIN_IMGSZ, MAX_IMGSZ = 160, 1280
+
 
 class ProcessingWorker(QObject):
     finished = Signal(dict)
@@ -27,6 +31,7 @@ class ProcessingWorker(QObject):
         super().__init__()
         self.config = config
         self.detector = None
+        self.imgsz = self._read_imgsz()
 
         self._initialize_detector()
 
@@ -39,6 +44,7 @@ class ProcessingWorker(QObject):
         self.save_training_images = bool(self.config.get("save_training_images", True))
         self.save_debug_frames = bool(self.config.get("save_debug_frames", False))
         logger.info(
+            f"Kích thước nhận diện (imgsz): {self.imgsz} | "
             f"Lưu ảnh training: {'BẬT' if self.save_training_images else 'TẮT'} | "
             f"Lưu ảnh debug: {'BẬT' if self.save_debug_frames else 'TẮT'}"
         )
@@ -61,6 +67,20 @@ class ProcessingWorker(QObject):
             return None
         return os.path.join(APP_DATA_DIR, model_filename)
 
+    def _read_imgsz(self) -> int:
+        """Đọc "yolo_imgsz" từ config; giá trị sai thì dùng mặc định, lệch thì làm tròn về bội số của 32."""
+        raw = self.config.get("yolo_imgsz", DEFAULT_IMGSZ)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            logger.warning(f"yolo_imgsz '{raw}' không hợp lệ, dùng mặc định {DEFAULT_IMGSZ}.")
+            return DEFAULT_IMGSZ
+        value = max(MIN_IMGSZ, min(MAX_IMGSZ, value))
+        rounded = max(MIN_IMGSZ, round(value / 32) * 32)
+        if rounded != int(raw):
+            logger.warning(f"yolo_imgsz {raw} được điều chỉnh thành {rounded} (bội số của 32).")
+        return rounded
+
     def _initialize_detector(self):
         model_path = self._model_dest_path()
         if not model_path:
@@ -76,7 +96,7 @@ class ProcessingWorker(QObject):
             return
 
         logger.info(f"Đang khởi tạo detector với model tại: {model_path}")
-        self.detector = ObjectDetector(model_path=model_path)
+        self.detector = ObjectDetector(model_path=model_path, imgsz=self.imgsz)
 
     @Slot(str)
     def reload_model(self, new_model_path: str):
@@ -98,7 +118,7 @@ class ProcessingWorker(QObject):
                 return
 
             # 1. Nạp và chạy thử model mới TRƯỚC khi đụng vào model đang dùng
-            candidate = ObjectDetector(model_path=new_model_path)
+            candidate = ObjectDetector(model_path=new_model_path, imgsz=self.imgsz)
             if candidate.model is None:
                 self.model_update_finished.emit(
                     False,

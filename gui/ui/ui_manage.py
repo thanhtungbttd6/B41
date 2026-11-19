@@ -436,9 +436,9 @@ class ManageGui(QWidget):
         box = QGroupBox("CHI TIẾT TỪNG PHÁT BẮN")
         layout = QVBoxLayout(box)
 
-        self.shot_table = QTableWidget(0, 4)
+        self.shot_table = QTableWidget(0, 3)
         self.shot_table.setHorizontalHeaderLabels(
-            ["Phát", "Thời gian", "Mục tiêu", "Kết quả"]
+            ["Phát", "Mục tiêu", "Kết quả"]
         )
         self.shot_table.verticalHeader().setVisible(False)
         self.shot_table.setAlternatingRowColors(True)
@@ -450,9 +450,8 @@ class ManageGui(QWidget):
         )
         header = self.shot_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         layout.addWidget(self.shot_table)
         return box
 

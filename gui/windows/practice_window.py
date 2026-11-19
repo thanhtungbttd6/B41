@@ -24,6 +24,8 @@ from core.worker import ProcessingWorker
 from utils.audio import AudioManager
 from utils.camera import Camera, find_available_cameras
 
+from utils.display import display_target_name as format_target_name
+
 from ..ui.ui_practice import MainGui
 
 logger = logging.getLogger(__name__)
@@ -269,7 +271,7 @@ class PracticeWindow(QMainWindow):
 
     @Slot(dict)
     def on_processing_finished(self, result):
-        display_target_name = result.get("target_name")
+        display_target_name = format_target_name(result.get("target_name"))
         score = result.get("score", 0)
         final_image_to_display = result.get("result_frame")
 
