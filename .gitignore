@@ -1,0 +1,9 @@
+__pycache__/
+.venv/
+venv/
+*.pt
+captures/
+runs/
+*.jpg
+*.png
+.DS_Store
