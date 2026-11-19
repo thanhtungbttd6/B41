@@ -52,9 +52,8 @@ class AudioManager:
 
         sounds_dir = resource_path(os.path.join("assets", "sounds"))
 
-        # Load các file cứng: shot, miss, hit, explosion (B41),
-        # và tiếng nổ riêng của Trung liên
-        sound_names = ["shot", "explosion", "miss", "hit", "trung_lien_shot"]
+        # Load các file cứng: shot (dự phòng), miss, hit và tiếng nổ riêng của Trung liên
+        sound_names = ["shot", "miss", "hit", "trung_lien_shot"]
 
         for name in sound_names:
             file_name = f"{name}.mp3"

@@ -8,8 +8,14 @@ import cv2
 import numpy as np
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import (
+    QInputDialog,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+)
 
+from core.database import DatabaseManager, save_shot_image
 from utils.audio import AudioManager
 from utils.camera import Camera, find_available_cameras
 
@@ -29,12 +35,13 @@ class TrungLienWindow(QMainWindow):
     # Chu kỳ kiểm tra thời điểm bắn của liên thanh (ms)
     BURST_TICK_MS = 5
 
-    def __init__(self, config=None, trigger=None):
+    def __init__(self, config=None, trigger=None, db: DatabaseManager = None):
         super().__init__()
 
         self.config = config or {}
         self.bt_trigger = trigger
-        self.gui = TrungLienGui()
+        self.db = db
+        self.gui = TrungLienGui(self.config)
 
         self.setWindowTitle("LUYỆN TẬP TRUNG LIÊN")
         self.setMinimumSize(1100, 720)
@@ -63,6 +70,15 @@ class TrungLienWindow(QMainWindow):
         # Mã phát bắn đơn đang chờ kết quả nhận diện (None = không chờ)
         self._last_single_timestamp = None
 
+        # --- PHIÊN BẮN ---
+        self.active_session_id = None
+        self.is_session_active = False
+        self.shot_counter = 0
+        # Phát bắn đơn đã gửi nhận diện nhưng chưa có kết quả: {timestamp: id phiên}
+        self._pending_shots = {}
+        # Phiên mà loạt liên thanh hiện tại thuộc về (None = không lưu)
+        self._burst_session_id = None
+
         # Các phát đã chụp của loạt bắn hiện tại
         self.shot_results = []
         self.current_shot_index = -1
@@ -85,6 +101,13 @@ class TrungLienWindow(QMainWindow):
         self.gui.camera_selector.currentIndexChanged.connect(self.on_camera_selected)
         self.gui.refresh_button.clicked.connect(self.refresh_camera_list)
         self.gui.camera_view_label.clicked.connect(self.set_new_center)
+
+        # --- KẾT NỐI PHIÊN BẮN ---
+        self.gui.session_button.clicked.connect(self.toggle_session)
+        self.gui.soldier_selector.currentIndexChanged.connect(self.reset_ui_state)
+        self.gui.burst_switch.toggled.connect(self._update_session_ui)
+        self.populate_soldier_selector()
+        self._update_session_ui()
 
         # --- KẾT NỐI ĐIỀU HƯỚNG ẢNH KẾT QUẢ ---
         self.gui.prev_shot_button.clicked.connect(self.show_previous_shot)
@@ -142,6 +165,8 @@ class TrungLienWindow(QMainWindow):
         self._screen_active = True
         if self.bt_trigger:
             self.bt_trigger.activate()
+        if not self.is_session_active:
+            self.populate_soldier_selector()
         self.refresh_camera_list()
 
     # ==============================================
@@ -340,6 +365,8 @@ class TrungLienWindow(QMainWindow):
 
         shot = self.shot_results[-1]
         self._last_single_timestamp = shot["timestamp"]
+        if self.is_session_active:
+            self._pending_shots[shot["timestamp"]] = self.active_session_id
         # Gửi bản sao để worker không vẽ đè lên ảnh sạch đã lưu
         self.request_processing.emit(
             shot["frame"].copy(), shot["point"], shot["timestamp"]
@@ -348,6 +375,10 @@ class TrungLienWindow(QMainWindow):
     @Slot(dict)
     def on_processing_finished(self, result):
         """Nhận kết quả nhận diện của phát bắn đơn và đọc thông báo Trúng/Trượt."""
+        # Luôn ghi vào phiên trước (kể cả kết quả của phát cũ đã bị phát mới thay thế)
+        # để không bỏ sót phát nào và không treo trạng thái "đang xử lý".
+        self._record_single_shot(result)
+
         if not self._screen_active:
             return
         # Bỏ qua kết quả không phải của phát bắn đơn hiện tại
@@ -405,6 +436,9 @@ class TrungLienWindow(QMainWindow):
 
         self.shot_results = []
         self.current_shot_index = -1
+        self._burst_session_id = (
+            self.active_session_id if self.is_session_active else None
+        )
 
         # Liên thanh không nhận diện: bỏ kết quả bắn đơn cũ (nếu còn chờ)
         self._last_single_timestamp = None
@@ -453,9 +487,12 @@ class TrungLienWindow(QMainWindow):
             self._finish_burst()
 
     def _finish_burst(self):
-        """Dừng loạt bắn (an toàn khi gọi nhiều lần)."""
+        """Dừng loạt bắn và lưu các viên đã bắn vào phiên (an toàn khi gọi nhiều lần)."""
+        was_active = self._burst_active
         self.burst_timer.stop()
         self._burst_active = False
+        if was_active:
+            self._save_burst_to_session()
 
     # ==============================================
     # SHOOTING: CAPTURE & RESULT DISPLAY
@@ -493,14 +530,9 @@ class TrungLienWindow(QMainWindow):
         self._refresh_result_view()
         return True
 
-    def _refresh_result_view(self):
-        """Hiển thị phát đang chọn lên khung kết quả và cập nhật điều hướng."""
-        total = len(self.shot_results)
-        if total == 0 or not (0 <= self.current_shot_index < total):
-            self.gui.clear_result_image()
-            return
-
-        shot = self.shot_results[self.current_shot_index]
+    @staticmethod
+    def _render_shot_image(shot):
+        """Ảnh của một phát có vẽ dấu ngắm (không đụng tới ảnh sạch đã lưu)."""
         image = shot["frame"].copy()
         if shot["point"]:
             cv2.drawMarker(
@@ -511,8 +543,17 @@ class TrungLienWindow(QMainWindow):
                 15,
                 1,
             )
+        return image
 
-        self.gui.show_result_image(image)
+    def _refresh_result_view(self):
+        """Hiển thị phát đang chọn lên khung kết quả và cập nhật điều hướng."""
+        total = len(self.shot_results)
+        if total == 0 or not (0 <= self.current_shot_index < total):
+            self.gui.clear_result_image()
+            return
+
+        shot = self.shot_results[self.current_shot_index]
+        self.gui.show_result_image(self._render_shot_image(shot))
         self.gui.set_shot_navigation(self.current_shot_index, total)
 
     def show_previous_shot(self):
@@ -533,6 +574,7 @@ class TrungLienWindow(QMainWindow):
         """Ngắt camera, tắt trigger và đưa giao diện về trạng thái ban đầu."""
         self._screen_active = False
         self._last_single_timestamp = None
+        self._pending_shots.clear()
         self._finish_burst()
         self.audio_manager.stop_sequence()
         self.disconnect_camera("Camera Trung liên chưa được kết nối")
@@ -540,7 +582,7 @@ class TrungLienWindow(QMainWindow):
             self.bt_trigger.deactivate()
         self.reset_ui_state()
 
-    def reset_ui_state(self):
+    def reset_ui_state(self, *_):
         """Đưa giao diện về trạng thái ban đầu."""
         self.shot_results = []
         self.current_shot_index = -1
@@ -549,3 +591,231 @@ class TrungLienWindow(QMainWindow):
         self.gui.score_label.setText("Kết quả: --")
 
         self.gui.clear_result_image()
+
+    # ==============================================
+    # PHIÊN BẮN & NGƯỜI BẮN
+    # ==============================================
+
+    def _trainee_term(self) -> str:
+        return self.config.get("labels", {}).get("trainee", "Chiến sĩ")
+
+    def populate_soldier_selector(self):
+        """Nạp danh sách người bắn từ cơ sở dữ liệu (giữ lại người đang chọn)."""
+        if self.db is None:
+            return
+        previous = self.gui.soldier_selector.currentData()
+        previous_id = previous.get("id") if isinstance(previous, dict) else None
+
+        self.gui.soldier_selector.blockSignals(True)
+        self.gui.soldier_selector.clear()
+        soldiers = self.db.get_all_soldiers()
+
+        if soldiers:
+            select_index = 0
+            for index, soldier in enumerate(soldiers):
+                name = soldier.get("name") or "Không tên"
+                class_name = soldier.get("class_name")
+                text = f"{name}  -  {class_name}" if class_name else name
+                self.gui.soldier_selector.addItem(text, userData=soldier)
+                if soldier.get("id") == previous_id:
+                    select_index = index
+            self.gui.soldier_selector.setCurrentIndex(select_index)
+        else:
+            prompt = self.config.get("labels", {}).get(
+                "practice_no_trainees_in_selector", "Chưa có {trainee} nào"
+            )
+            self.gui.soldier_selector.addItem(
+                prompt.format(trainee=self._trainee_term().lower())
+            )
+        self.gui.soldier_selector.blockSignals(False)
+
+    def toggle_session(self):
+        if self.is_session_active:
+            self._end_session()
+        else:
+            self._start_session()
+
+    def _start_session(self):
+        if not self.is_camera_connected:
+            QMessageBox.warning(
+                self,
+                "Chưa kết nối Camera",
+                "Vui lòng kết nối camera USB và chờ tín hiệu hiển thị "
+                "trước khi bắt đầu.",
+            )
+            return
+
+        soldier = self.gui.soldier_selector.currentData()
+        if not isinstance(soldier, dict):
+            prompt = self.config.get("labels", {}).get(
+                "practice_select_trainee_first",
+                "Vui lòng chọn một {trainee} trước khi bắt đầu.",
+            )
+            QMessageBox.warning(
+                self,
+                self._trainee_term(),
+                prompt.format(trainee=self._trainee_term().lower()),
+            )
+            return
+
+        session_id = self.db.create_session(soldier["id"])
+        if not session_id:
+            QMessageBox.critical(
+                self, "Lỗi dữ liệu", "Không thể tạo phiên tập mới trong cơ sở dữ liệu."
+            )
+            return
+
+        self.active_session_id = session_id
+        self.is_session_active = True
+        self.shot_counter = 0
+        self._pending_shots.clear()
+        self.reset_ui_state()
+        logger.info(f"Trung liên: bắt đầu phiên ID {session_id} cho người bắn ID {soldier['id']}")
+        self._update_session_ui()
+
+    def _end_session(self):
+        if self._pending_shots or self._burst_active:
+            QMessageBox.information(
+                self,
+                "Đang xử lý",
+                "Phát bắn vừa rồi đang được xử lý.\nVui lòng chờ vài giây rồi kết thúc.",
+            )
+            return
+
+        shot_count = self.db.get_shot_count_for_session(self.active_session_id)
+
+        if shot_count == 0:
+            box = QMessageBox(self)
+            box.setWindowTitle("Xác nhận Kết thúc")
+            box.setText("Bạn chưa thực hiện phát bắn nào.")
+            box.setInformativeText("Bạn có muốn kết thúc và xóa luôn phiên tập này?")
+            box.setIcon(QMessageBox.Question)
+            delete_button = box.addButton("Kết thúc và Xóa", QMessageBox.DestructiveRole)
+            box.addButton("Hủy", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() != delete_button:
+                return
+            self.db.delete_session(self.active_session_id)
+            logger.info(f"Đã xóa phiên trống ID {self.active_session_id}")
+            self._finalize_session()
+            return
+
+        soldier = self.gui.soldier_selector.currentData()
+        soldier_id = soldier["id"] if isinstance(soldier, dict) else None
+        default_name = f"Phiên tập #{self.active_session_id}"
+
+        while True:
+            name, ok = QInputDialog.getText(
+                self,
+                "Đặt tên Phiên tập",
+                "Nhập tên để lưu lại phiên tập này:",
+                QLineEdit.Normal,
+                default_name,
+            )
+            if not ok:
+                return  # Hủy: tiếp tục phiên
+            final_name = name.strip() or default_name
+            if self.db.session_name_exists(
+                final_name,
+                soldier_id=soldier_id,
+                exclude_session_id=self.active_session_id,
+            ):
+                QMessageBox.warning(
+                    self,
+                    "Tên bị trùng",
+                    f"{self._trainee_term()} này đã có phiên tập tên '{final_name}'."
+                    "\nVui lòng chọn một tên khác.",
+                )
+                default_name = final_name
+                continue
+            self.db.update_session_name(self.active_session_id, final_name)
+            self._finalize_session()
+            return
+
+    def _finalize_session(self):
+        self.db.end_session(self.active_session_id)
+        logger.info(f"Trung liên: đã kết thúc phiên ID {self.active_session_id}")
+        self.is_session_active = False
+        self.active_session_id = None
+        self.shot_counter = 0
+        self._pending_shots.clear()
+        self._update_session_ui()
+
+    def _update_session_ui(self, *_):
+        """Đồng bộ nút/nhãn với trạng thái phiên (đang bắn hoặc chưa bắt đầu)."""
+        active = self.is_session_active
+        button = self.gui.session_button
+        button.setText("KẾT THÚC" if active else "BẮT ĐẦU")
+        button.setObjectName("danger" if active else "")
+        button.style().unpolish(button)
+        button.style().polish(button)
+
+        self.gui.back_button.setEnabled(not active)
+        self.gui.soldier_selector.setEnabled(not active)
+
+        if not active:
+            text = "Chưa bắt đầu phiên - kết quả không được lưu"
+        elif self.gui.is_burst_enabled():
+            text = (
+                f"Đang ghi phiên - đã lưu {self.shot_counter} phát. "
+                "Liên thanh: lưu ảnh, chưa chấm Trúng/Trượt"
+            )
+        else:
+            text = f"Đang ghi phiên - đã lưu {self.shot_counter} phát"
+        self.gui.session_status_label.setText(text)
+
+    def _record_single_shot(self, result: dict):
+        """Lưu kết quả của một phát bắn đơn vào phiên (nếu phát này thuộc một phiên)."""
+        session_id = self._pending_shots.pop(result.get("image_path"), None)
+        if session_id is None or self.db is None:
+            return
+        if result.get("target_detected_raw") == "ERROR":
+            logger.warning("Bỏ qua phát bắn bị lỗi model AI, không lưu vào phiên.")
+            return
+
+        self.shot_counter += 1
+        image_path = save_shot_image(
+            session_id, self.shot_counter, result.get("result_frame")
+        )
+        self.db.add_shot(
+            session_id=session_id,
+            shot_number=self.shot_counter,
+            target_detected=result.get("target_detected_raw"),
+            score=1 if result.get("score") == 1 else 0,
+            coords=result.get("coords"),
+            image_path=image_path,
+        )
+        self._update_session_ui()
+
+    def _save_burst_to_session(self):
+        """Lưu các viên của loạt liên thanh vừa kết thúc vào phiên (chưa chấm điểm)."""
+        session_id = self._burst_session_id
+        self._burst_session_id = None
+        if session_id is None or self.db is None or not self.shot_results:
+            return
+
+        saved = 0
+        for shot in self.shot_results:
+            self.shot_counter += 1
+            image_path = save_shot_image(
+                session_id, self.shot_counter, self._render_shot_image(shot)
+            )
+            ok = self.db.add_shot(
+                session_id=session_id,
+                shot_number=self.shot_counter,
+                target_detected="Chưa nhận diện",
+                score=None,
+                coords=shot["point"],
+                image_path=image_path,
+            )
+            saved += 1 if ok else 0
+        logger.info(f"Trung liên: đã lưu {saved} viên liên thanh vào phiên {session_id}.")
+        self._update_session_ui()
+
+    def abort_session_on_exit(self):
+        """Gọi khi đóng ứng dụng: xóa phiên trống, giữ phiên đã có phát bắn."""
+        if self.is_session_active and self.active_session_id and self.db is not None:
+            if self.db.get_shot_count_for_session(self.active_session_id) == 0:
+                self.db.delete_session(self.active_session_id)
+        self.is_session_active = False
+        self.active_session_id = None

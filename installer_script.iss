@@ -1,6 +1,6 @@
 ; === Shooting App Installer Script ===
 
-#define MyAppName "Kiểm Tra Đường Ngắm STL"
+#define MyAppName "Kiểm Tra Đường Ngắm Trung Liên"
 #define MyAppVersion "1.1.0"
 #define MyAppPublisher "LTSoftware"
 #define MyAppExeName "ShootingApp.exe"
@@ -10,7 +10,7 @@
 [Setup]
 ; AppId là một mã định danh duy nhất cho ứng dụng của bạn. 
 ; Bạn có thể tạo mã mới từ menu Tools > Generate GUID trong Inno Setup.
-AppId={{C194D481-22C5-42E1-975E-538F36C58925}}
+AppId={{48E4CE15-BCC5-4488-B5DC-B7FE3AAC135E}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
