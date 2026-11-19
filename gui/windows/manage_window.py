@@ -24,22 +24,9 @@ from PySide6.QtWidgets import (
 from core.database import DatabaseManager
 from gui.ui.theme import COLORS
 from gui.ui.ui_manage import ManageGui
+from utils.display import display_target_name
 
 logger = logging.getLogger(__name__)
-
-
-def display_target_name(raw) -> str:
-    """Đổi tên lớp của model (ví dụ 'bia_so_4') thành tên hiển thị."""
-    if raw == "Chưa nhận diện":
-        return "Chưa nhận diện"
-    if not raw or raw == "Trượt":
-        return "Ngoài bia"
-    if raw == "bia_so_7_8":  # dữ liệu của phiên bản cũ
-        return "Bia số 7"
-    if raw.startswith("bia_so_"):
-        return f"Bia số {raw[len('bia_so_'):]}"
-    text = raw.replace("_", " ").strip()
-    return text[:1].upper() + text[1:]
 
 
 # =============================================================================
@@ -463,9 +450,11 @@ class ManageWindow(QMainWindow):
     def _fill_target_table(self, by_target: list):
         table = self.ui.target_table
         table.setRowCount(len(by_target))
+        session_total = sum(entry["total"] for entry in by_target)
         for row, entry in enumerate(by_target):
-            total, hits, graded = entry["total"], entry["hits"], entry["graded"]
-            rate = f"{hits / graded * 100:.0f}%" if graded else "--"
+            total, hits = entry["total"], entry["hits"]
+            # Tỷ lệ = số phát vào loại bia này / tổng số phát của phiên (cộng lại = 100%)
+            rate = f"{total / session_total * 100:.1f}%" if session_total else "--"
             cells = [display_target_name(entry["target"]), str(total), str(hits), rate]
             for column, text in enumerate(cells):
                 item = QTableWidgetItem(text)
@@ -473,18 +462,18 @@ class ManageWindow(QMainWindow):
                     item.setTextAlignment(Qt.AlignCenter)
                 table.setItem(row, column, item)
 
+    @staticmethod
+    def _burst_text(shot) -> str:
+        """Cột Loạt: số thứ tự loạt của viên liên thanh, phát bắn đơn ghi 'Bắn đơn'."""
+        burst_id = shot.get("burst_id")
+        return f"Loạt {burst_id}" if burst_id else "Bắn đơn"
+
     def _fill_shot_table(self):
         table = self.ui.shot_table
         table.blockSignals(True)
         table.clearSelection()
         table.setRowCount(len(self.current_shots))
         for row, shot in enumerate(self.current_shots):
-            try:
-                ts = datetime.strptime(shot["timestamp"], "%Y-%m-%d %H:%M:%S")
-                time_text = ts.strftime("%H:%M:%S")
-            except (ValueError, TypeError):
-                time_text = str(shot["timestamp"])
-
             score = shot.get("score")
             if score is None:
                 result_item = QTableWidgetItem("Chưa chấm")
@@ -498,7 +487,7 @@ class ManageWindow(QMainWindow):
 
             cells = [
                 QTableWidgetItem(str(shot["shot_number"])),
-                QTableWidgetItem(time_text),
+                QTableWidgetItem(self._burst_text(shot)),
                 QTableWidgetItem(display_target_name(shot.get("target_detected"))),
                 result_item,
             ]

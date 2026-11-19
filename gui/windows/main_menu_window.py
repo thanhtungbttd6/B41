@@ -31,6 +31,7 @@ class MainMenuWindow(QMainWindow):
         # GIỮ TƯƠNG THÍCH VỚI APPLICATION CONTROLLER
         self.trung_lien_button = self.ui.trung_lien_button
         self.stats_button = self.ui.stats_button
+        self.model_button = self.ui.model_button
         self.exit_button = self.ui.exit_button
 
     # ==============================================

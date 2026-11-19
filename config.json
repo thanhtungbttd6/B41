@@ -2,6 +2,9 @@
     "camera_index": 0,
     "yolo_model_name": "my_modelB41.pt",
     "yolo_confidence_threshold": 0.25,
+    "yolo_imgsz": 320,
+    "save_training_images": true,
+    "save_debug_frames": false,
     "labels": {
         "customer_unit_name": "TÊN ĐƠN VỊ KHÁCH HÀNG",
         "app_title": "PHẦN MỀM KIỂM TRA ĐƯỜNG NGẮM",

@@ -4,10 +4,12 @@ from ultralytics import YOLO
 
 
 class ObjectDetector:
-    def __init__(self, model_path="my_modelB41.pt"):
+    def __init__(self, model_path="my_modelB41.pt", imgsz=320):
         """
         Khởi tạo detector với model YOLO.
+        imgsz: kích thước ảnh khi nhận diện (bội số của 32), lấy từ config "yolo_imgsz".
         """
+        self.imgsz = imgsz
         try:
             self.model = YOLO(model_path)
             # In ra thông tin các lớp mà model có thể nhận diện
@@ -33,7 +35,7 @@ class ObjectDetector:
 
         detections = []
         results = self.model(
-            image, conf=conf, imgsz=320, verbose=False
+            image, conf=conf, imgsz=self.imgsz, verbose=False
         )  # verbose=False để log gọn hơn
 
         if results and results[0].boxes:

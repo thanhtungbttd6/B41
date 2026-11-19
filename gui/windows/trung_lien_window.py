@@ -1,4 +1,4 @@
-"""B41 - Trung Lien Window Controller."""
+"""Trung Lien Window Controller."""
 
 import logging
 import time
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from core.database import DatabaseManager, save_shot_image
 from utils.audio import AudioManager
 from utils.camera import Camera, find_available_cameras
+from utils.display import display_target_name
 
 from ..ui.ui_trung_lien import TrungLienGui
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 class TrungLienWindow(QMainWindow):
     """Cửa sổ giao diện Trung liên: camera, zoom, hiệu chỉnh tâm, bắn đơn/liên thanh."""
 
-    # Gửi ảnh đến worker nhận diện (chỉ dùng ở chế độ phát một)
+    # Gửi ảnh đến worker nhận diện (phát một và từng viên của loạt liên thanh)
     request_processing = Signal(np.ndarray, object, str)
 
     # Giới hạn số viên tối đa trong một loạt bắn (chống đè cò)
@@ -76,8 +77,14 @@ class TrungLienWindow(QMainWindow):
         self.shot_counter = 0
         # Phát bắn đơn đã gửi nhận diện nhưng chưa có kết quả: {timestamp: id phiên}
         self._pending_shots = {}
+        # Số thứ tự loạt của từng viên đang chờ kết quả: {timestamp: số loạt}
+        self._pending_burst_no = {}
+        # Số loạt liên thanh đã bắn trong phiên hiện tại
+        self._burst_counter = 0
         # Phiên mà loạt liên thanh hiện tại thuộc về (None = không lưu)
         self._burst_session_id = None
+        # Các viên của loạt vừa bắn đang chờ/đã có kết quả nhận diện: {timestamp: shot}
+        self._burst_shots_by_ts = {}
 
         # Các phát đã chụp của loạt bắn hiện tại
         self.shot_results = []
@@ -357,6 +364,7 @@ class TrungLienWindow(QMainWindow):
         self.shot_results = []
         self.current_shot_index = -1
         self._last_single_timestamp = None
+        self._burst_shots_by_ts = {}
         self.gui.target_name_label.setText("Tên mục tiêu: --")
         self.gui.score_label.setText("Kết quả: --")
 
@@ -381,6 +389,12 @@ class TrungLienWindow(QMainWindow):
 
         if not self._screen_active:
             return
+
+        # Kết quả của một viên thuộc loạt liên thanh: chỉ hiển thị, không đọc âm thanh
+        if result.get("image_path") in self._burst_shots_by_ts:
+            self._on_burst_shot_result(result)
+            return
+
         # Bỏ qua kết quả không phải của phát bắn đơn hiện tại
         # (kết quả của B41, của phát cũ, hoặc khi đã chuyển sang liên thanh)
         if (
@@ -397,7 +411,9 @@ class TrungLienWindow(QMainWindow):
             self.audio_manager.enqueue_sounds(["miss"])
             score_text = "TRƯỢT"
 
-        self.gui.target_name_label.setText(f"Tên mục tiêu: {result.get('target_name')}")
+        self.gui.target_name_label.setText(
+            f"Tên mục tiêu: {display_target_name(result.get('target_name'))}"
+        )
         self.gui.score_label.setText(f"Kết quả: {score_text}")
 
         result_frame = result.get("result_frame")
@@ -440,8 +456,9 @@ class TrungLienWindow(QMainWindow):
             self.active_session_id if self.is_session_active else None
         )
 
-        # Liên thanh không nhận diện: bỏ kết quả bắn đơn cũ (nếu còn chờ)
+        # Bỏ kết quả bắn đơn cũ và kết quả của loạt trước (nếu còn chờ) khỏi màn hình
         self._last_single_timestamp = None
+        self._burst_shots_by_ts = {}
         self.audio_manager.stop_sequence()
         self.gui.target_name_label.setText("Tên mục tiêu: --")
         self.gui.score_label.setText("Kết quả: --")
@@ -492,7 +509,7 @@ class TrungLienWindow(QMainWindow):
         self.burst_timer.stop()
         self._burst_active = False
         if was_active:
-            self._save_burst_to_session()
+            self._dispatch_burst_for_recognition()
 
     # ==============================================
     # SHOOTING: CAPTURE & RESULT DISPLAY
@@ -524,6 +541,7 @@ class TrungLienWindow(QMainWindow):
                 "frame": frame.copy(),  # ảnh sạch, dùng cho nhận diện
                 "point": self.shot_point_on_zoomed_frame,
                 "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3],
+                "burst": not single,
             }
         )
         self.current_shot_index = len(self.shot_results) - 1
@@ -532,7 +550,11 @@ class TrungLienWindow(QMainWindow):
 
     @staticmethod
     def _render_shot_image(shot):
-        """Ảnh của một phát có vẽ dấu ngắm (không đụng tới ảnh sạch đã lưu)."""
+        """Ảnh của một phát: ảnh kết quả nhận diện nếu đã có, ngược lại vẽ dấu ngắm
+        lên bản sao (không đụng tới ảnh sạch đã lưu)."""
+        result_frame = shot.get("result_frame")
+        if result_frame is not None:
+            return result_frame.copy()
         image = shot["frame"].copy()
         if shot["point"]:
             cv2.drawMarker(
@@ -555,6 +577,8 @@ class TrungLienWindow(QMainWindow):
         shot = self.shot_results[self.current_shot_index]
         self.gui.show_result_image(self._render_shot_image(shot))
         self.gui.set_shot_navigation(self.current_shot_index, total)
+        if shot.get("burst"):
+            self._show_burst_shot_labels(shot)
 
     def show_previous_shot(self):
         if self.current_shot_index > 0:
@@ -574,8 +598,10 @@ class TrungLienWindow(QMainWindow):
         """Ngắt camera, tắt trigger và đưa giao diện về trạng thái ban đầu."""
         self._screen_active = False
         self._last_single_timestamp = None
-        self._pending_shots.clear()
         self._finish_burst()
+        self._pending_shots.clear()
+        self._pending_burst_no.clear()
+        self._burst_shots_by_ts = {}
         self.audio_manager.stop_sequence()
         self.disconnect_camera("Camera Trung liên chưa được kết nối")
         if self.bt_trigger:
@@ -586,6 +612,7 @@ class TrungLienWindow(QMainWindow):
         """Đưa giao diện về trạng thái ban đầu."""
         self.shot_results = []
         self.current_shot_index = -1
+        self._burst_shots_by_ts = {}
 
         self.gui.target_name_label.setText("Tên mục tiêu: --")
         self.gui.score_label.setText("Kết quả: --")
@@ -668,7 +695,9 @@ class TrungLienWindow(QMainWindow):
         self.active_session_id = session_id
         self.is_session_active = True
         self.shot_counter = 0
+        self._burst_counter = 0
         self._pending_shots.clear()
+        self._pending_burst_no.clear()
         self.reset_ui_state()
         logger.info(f"Trung liên: bắt đầu phiên ID {session_id} cho người bắn ID {soldier['id']}")
         self._update_session_ui()
@@ -738,7 +767,9 @@ class TrungLienWindow(QMainWindow):
         self.is_session_active = False
         self.active_session_id = None
         self.shot_counter = 0
+        self._burst_counter = 0
         self._pending_shots.clear()
+        self._pending_burst_no.clear()
         self._update_session_ui()
 
     def _update_session_ui(self, *_):
@@ -755,11 +786,6 @@ class TrungLienWindow(QMainWindow):
 
         if not active:
             text = "Chưa bắt đầu phiên - kết quả không được lưu"
-        elif self.gui.is_burst_enabled():
-            text = (
-                f"Đang ghi phiên - đã lưu {self.shot_counter} phát. "
-                "Liên thanh: lưu ảnh, chưa chấm Trúng/Trượt"
-            )
         else:
             text = f"Đang ghi phiên - đã lưu {self.shot_counter} phát"
         self.gui.session_status_label.setText(text)
@@ -767,6 +793,7 @@ class TrungLienWindow(QMainWindow):
     def _record_single_shot(self, result: dict):
         """Lưu kết quả của một phát bắn đơn vào phiên (nếu phát này thuộc một phiên)."""
         session_id = self._pending_shots.pop(result.get("image_path"), None)
+        burst_no = self._pending_burst_no.pop(result.get("image_path"), None)
         if session_id is None or self.db is None:
             return
         if result.get("target_detected_raw") == "ERROR":
@@ -784,33 +811,92 @@ class TrungLienWindow(QMainWindow):
             score=1 if result.get("score") == 1 else 0,
             coords=result.get("coords"),
             image_path=image_path,
+            burst_id=burst_no,
         )
         self._update_session_ui()
 
-    def _save_burst_to_session(self):
-        """Lưu các viên của loạt liên thanh vừa kết thúc vào phiên (chưa chấm điểm)."""
+    def _dispatch_burst_for_recognition(self):
+        """Gửi lần lượt các viên của loạt vừa kết thúc sang worker để nhận diện.
+
+        Gửi sau khi loạt kết thúc để việc nhận diện không làm lệch nhịp bắn.
+        Kết quả về theo đúng thứ tự; mỗi viên thuộc phiên (nếu có) sẽ được lưu
+        khi có kết quả, cùng đường lưu với phát bắn đơn.
+        """
         session_id = self._burst_session_id
         self._burst_session_id = None
-        if session_id is None or self.db is None or not self.shot_results:
+        shots = list(self.shot_results)
+        if not shots:
             return
 
-        saved = 0
-        for shot in self.shot_results:
-            self.shot_counter += 1
-            image_path = save_shot_image(
-                session_id, self.shot_counter, self._render_shot_image(shot)
+        self._burst_shots_by_ts = {}
+        in_session = session_id is not None and self.db is not None
+        if in_session:
+            self._burst_counter += 1
+        for shot in shots:
+            self._burst_shots_by_ts[shot["timestamp"]] = shot
+            shot["pending"] = True
+            if in_session:
+                self._pending_shots[shot["timestamp"]] = session_id
+                self._pending_burst_no[shot["timestamp"]] = self._burst_counter
+
+        logger.info(
+            f"Trung liên: gửi {len(shots)} viên liên thanh đi nhận diện"
+            f"{' (lưu vào phiên ' + str(session_id) + ')' if session_id else ''}."
+        )
+        self._refresh_result_view()
+
+        for shot in shots:
+            # Gửi bản sao để worker không vẽ đè lên ảnh sạch
+            self.request_processing.emit(
+                shot["frame"].copy(), shot["point"], shot["timestamp"]
             )
-            ok = self.db.add_shot(
-                session_id=session_id,
-                shot_number=self.shot_counter,
-                target_detected="Chưa nhận diện",
-                score=None,
-                coords=shot["point"],
-                image_path=image_path,
-            )
-            saved += 1 if ok else 0
-        logger.info(f"Trung liên: đã lưu {saved} viên liên thanh vào phiên {session_id}.")
-        self._update_session_ui()
+
+    def _on_burst_shot_result(self, result: dict):
+        """Nhận kết quả nhận diện của một viên liên thanh và cập nhật màn hình."""
+        shot = self._burst_shots_by_ts.get(result.get("image_path"))
+        if shot is None:
+            return
+        shot["pending"] = False
+        shot["result"] = {
+            "target_name": result.get("target_name"),
+            "score": result.get("score", 0),
+            "error": result.get("target_detected_raw") == "ERROR",
+        }
+        if not shot["result"]["error"] and result.get("result_frame") is not None:
+            shot["result_frame"] = result["result_frame"]
+
+        # Cập nhật ngay nếu đang xem đúng viên này (hoặc để cập nhật tổng loạt)
+        if self.shot_results and 0 <= self.current_shot_index < len(self.shot_results):
+            self._refresh_result_view()
+
+    def _burst_summary(self):
+        """(số viên trúng, số viên đã có kết quả hợp lệ, tổng số viên) của loạt hiện tại."""
+        shots = [x for x in self.shot_results if x.get("burst")]
+        done = [x for x in shots if x.get("result") and not x["result"]["error"]]
+        hits = sum(1 for x in done if x["result"]["score"] == 1)
+        return hits, len(done), len(shots)
+
+    def _show_burst_shot_labels(self, shot):
+        """Hiển thị tên mục tiêu/kết quả của viên đang xem trong loạt liên thanh."""
+        result = shot.get("result")
+        if result is None:
+            self.gui.target_name_label.setText("Tên mục tiêu: --")
+            text = "Đang nhận diện..." if shot.get("pending") else "--"
+            self.gui.score_label.setText(f"Kết quả: {text}")
+            return
+
+        if result["error"]:
+            self.gui.target_name_label.setText("Tên mục tiêu: --")
+            self.gui.score_label.setText("Kết quả: Lỗi model AI")
+            return
+
+        hits, done, total = self._burst_summary()
+        score_text = "TRÚNG" if result["score"] == 1 else "TRƯỢT"
+        self.gui.target_name_label.setText(
+            f"Tên mục tiêu: {display_target_name(result.get('target_name'))}"
+        )
+        summary = f" (loạt: {hits}/{total} trúng)" if done == total else ""
+        self.gui.score_label.setText(f"Kết quả: {score_text}{summary}")
 
     def abort_session_on_exit(self):
         """Gọi khi đóng ứng dụng: xóa phiên trống, giữ phiên đã có phát bắn."""

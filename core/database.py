@@ -99,6 +99,12 @@ class DatabaseManager:
                 FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
             );
         """)
+        # Cột 'burst_id' (số thứ tự loạt liên thanh trong phiên) thêm sau này:
+        # tự nâng cấp database cũ mà không mất dữ liệu.
+        self.cursor.execute("PRAGMA table_info(shots)")
+        shot_columns = [row[1] for row in self.cursor.fetchall()]
+        if "burst_id" not in shot_columns:
+            self.cursor.execute("ALTER TABLE shots ADD COLUMN burst_id INTEGER")
         self.conn.commit()
 
     # ======================================================================
@@ -256,6 +262,7 @@ class DatabaseManager:
         score: int | None,
         coords: tuple | None,
         image_path: str | None,
+        burst_id: int | None = None,
     ) -> bool:
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -265,8 +272,8 @@ class DatabaseManager:
                 """
                 INSERT INTO shots
                 (session_id, shot_number, target_detected, score,
-                 hit_coordinate_x, hit_coordinate_y, image_path, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 hit_coordinate_x, hit_coordinate_y, image_path, timestamp, burst_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -277,6 +284,7 @@ class DatabaseManager:
                     coord_y,
                     image_path,
                     timestamp,
+                    burst_id,
                 ),
             )
             self.conn.commit()

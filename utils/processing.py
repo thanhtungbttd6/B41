@@ -46,48 +46,6 @@ def check_object_center(detections, image, calibrated_center):
     return "TRƯỢT", {"shot_point": (center_x, center_y)}
 
 
-def calculate_hit_result_by_color(
-    frame: np.ndarray,
-    target_box: Tuple[int, int, int, int],
-    aim_point: Tuple[float, float],
-) -> str:
-    """
-    Xác định kết quả Trúng/Trượt dựa trên nhận diện vùng màu đen thực tế của bia.
-    """
-    x_min, y_min, x_max, y_max = [int(v) for v in target_box]
-    hit_x, hit_y = int(aim_point[0]), int(aim_point[1])
-
-    if not (x_min <= hit_x <= x_max and y_min <= hit_y <= y_max):
-        return "Trượt"
-
-    roi = frame[y_min:y_max, x_min:x_max]
-    if roi.size == 0:
-        return "Trượt"
-
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-
-    # Tách ngưỡng nhị phân để lọc màu đen (Đen thành Trắng 255, Trắng thành Đen 0)
-    _, thresh = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY_INV)
-
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if not contours:
-        return "Trượt"
-
-    largest_contour = max(contours, key=cv2.contourArea)
-    bx, by, bw, bh = cv2.boundingRect(largest_contour)
-
-    black_x_min = x_min + bx
-    black_y_min = y_min + by
-    black_x_max = black_x_min + bw
-    black_y_max = black_y_min + bh
-
-    if (black_x_min <= hit_x <= black_x_max) and (black_y_min <= hit_y <= black_y_max):
-        return "Trúng"
-
-    return "Trượt"
-
-
 def warp_crop_to_original(
     original_img: np.ndarray,
     obj_crop: np.ndarray,

@@ -439,7 +439,7 @@ class ManageGui(QWidget):
 
         self.shot_table = QTableWidget(0, 4)
         self.shot_table.setHorizontalHeaderLabels(
-            ["Phát", "Thời gian", "Mục tiêu", "Kết quả"]
+            ["Phát", "Loạt", "Mục tiêu", "Kết quả"]
         )
         self.shot_table.verticalHeader().setVisible(False)
         self.shot_table.setAlternatingRowColors(True)
