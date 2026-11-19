@@ -137,6 +137,18 @@ class MainGui(QWidget):
                 font-size: {f(11)}px;
                 font-weight: 800;
             }}
+            QLabel#sessionFieldLabel {{
+                color: {COLORS['text_secondary']};
+                font-size: {f(10)}px;
+                font-weight: 700;
+                background: transparent;
+            }}
+            QLabel#sessionStatus {{
+                color: {COLORS['text_secondary']};
+                font-size: {f(9)}px;
+                font-weight: 600;
+                background: transparent;
+            }}
             QLabel#resultImageTitle {{
                 color: {COLORS['text_secondary']};
                 font-size: {f(10)}px;
@@ -412,6 +424,46 @@ class MainGui(QWidget):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(margin, margin, margin, margin)
         layout.setSpacing(scaled(8, self.scale_factor))
+
+        # SESSION GROUP (chọn người bắn + bắt đầu/kết thúc phiên)
+        labels = self.config.get("labels", {})
+        trainee_term = labels.get("trainee", "Chiến sĩ")
+
+        session_box = QGroupBox("LẦN BẮN")
+        session_layout = QVBoxLayout(session_box)
+        session_layout.setContentsMargins(
+            scaled(6, self.scale_factor),
+            scaled(4, self.scale_factor),
+            scaled(6, self.scale_factor),
+            scaled(4, self.scale_factor),
+        )
+        session_layout.setSpacing(scaled(6, self.scale_factor))
+
+        session_row = QHBoxLayout()
+        session_row.setSpacing(scaled(6, self.scale_factor))
+
+        self.soldier_select_label = QLabel(f"{trainee_term}:")
+        self.soldier_select_label.setObjectName("sessionFieldLabel")
+        session_row.addWidget(self.soldier_select_label)
+
+        self.soldier_selector = QComboBox()
+        self.soldier_selector.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        session_row.addWidget(self.soldier_selector, 1)
+
+        self.session_button = QPushButton("BẮT ĐẦU")
+        self.session_button.setCursor(Qt.PointingHandCursor)
+        session_row.addWidget(self.session_button)
+
+        session_layout.addLayout(session_row)
+
+        self.session_status_label = QLabel(
+            "Chưa bắt đầu phiên - kết quả không được lưu"
+        )
+        self.session_status_label.setObjectName("sessionStatus")
+        self.session_status_label.setWordWrap(True)
+        session_layout.addWidget(self.session_status_label)
+
+        layout.addWidget(session_box)
 
         # RESULT GROUP
         result_box = QGroupBox("KẾT QUẢ GHI NHẬN")

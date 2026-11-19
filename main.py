@@ -28,11 +28,12 @@ from PySide6.QtCore import QThread
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 
 from config import APP_DATA_DIR
+from core.database import DatabaseManager
 from core.triggers import BluetoothTrigger
 from core.worker import ProcessingWorker
 from gui.windows.main_menu_window import MainMenuWindow
+from gui.windows.manage_window import ManageWindow
 from gui.windows.practice_window import PracticeWindow
-from gui.windows.trung_lien_window import TrungLienWindow
 from utils.license_manager import verify_key
 from utils.resource_path import resource_path
 
@@ -165,6 +166,8 @@ class ApplicationController(QMainWindow):
             "background-color: #f8fafc;"
         )  # Màu nền sáng cho container chính
 
+        self.db = DatabaseManager()
+
         self.processing_thread = QThread()
         self.processing_worker = ProcessingWorker(self.config)
         self.bt_trigger = BluetoothTrigger()
@@ -174,18 +177,18 @@ class ApplicationController(QMainWindow):
 
         self.main_menu = MainMenuWindow(self.config)
         self.practice_screen = PracticeWindow(
-            worker=self.processing_worker, trigger=self.bt_trigger, config=self.config
+            worker=self.processing_worker,
+            trigger=self.bt_trigger,
+            config=self.config,
+            db=self.db,
         )
-
-        self.trung_lien_screen = TrungLienWindow(
-            config=self.config, trigger=self.bt_trigger
-        )
+        self.manage_screen = ManageWindow(self.config, self.db)
 
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
         self.stacked_widget.addWidget(self.main_menu)
         self.stacked_widget.addWidget(self.practice_screen)
-        self.stacked_widget.addWidget(self.trung_lien_screen)
+        self.stacked_widget.addWidget(self.manage_screen)
         self.connect_signals()
 
         self.processing_thread.start()
@@ -240,9 +243,9 @@ class ApplicationController(QMainWindow):
 
     def connect_signals(self):
         self.main_menu.practice_button.clicked.connect(self.show_practice_screen)
-        self.main_menu.trung_lien_button.clicked.connect(self.show_trung_lien_screen)
+        self.main_menu.stats_button.clicked.connect(self.show_manage_screen)
         self.practice_screen.gui.back_button.clicked.connect(self.show_main_menu)
-        self.trung_lien_screen.back_button.clicked.connect(self.show_main_menu)
+        self.manage_screen.ui.back_button.clicked.connect(self.show_main_menu)
         self.main_menu.exit_button.clicked.connect(self.close)
 
         self.practice_screen.request_processing.connect(
@@ -252,25 +255,12 @@ class ApplicationController(QMainWindow):
             self.practice_screen.on_processing_finished
         )
 
-        # Tín hiệu bóp cò (bắn đơn) được chuyển đến màn hình đang hiển thị
-        self.bt_trigger.triggered.connect(self.on_trigger_fired)
-        # Tín hiệu đè cò / nhả cò dành cho liên thanh của Trung liên
-        self.bt_trigger.pressed.connect(self.trung_lien_screen.on_trigger_pressed)
-        self.bt_trigger.released.connect(self.trung_lien_screen.on_trigger_released)
-
-    def on_trigger_fired(self):
-        """Chuyển tín hiệu bóp cò đến đúng màn hình luyện tập đang mở."""
-        current_widget = self.stacked_widget.currentWidget()
-
-        if current_widget == self.practice_screen:
-            self.practice_screen.capture_photo()
-        elif current_widget == self.trung_lien_screen:
-            self.trung_lien_screen.on_trigger_single()
+        self.bt_trigger.triggered.connect(self.practice_screen.capture_photo)
 
     def cleanup_before_exit(self):
-        # Giải phóng camera của cả hai màn hình trước khi thoát
+        # Giải phóng camera và đóng phiên đang dở (xóa phiên trống) trước khi thoát
         self.practice_screen.disconnect_camera()
-        self.trung_lien_screen.disconnect_camera()
+        self.practice_screen.abort_session_on_exit()
 
         if self.bt_trigger:
             self.bt_trigger.stop_global_listener()
@@ -278,10 +268,7 @@ class ApplicationController(QMainWindow):
             self.processing_thread.quit()
             if not self.processing_thread.wait(3000):
                 self.processing_thread.terminate()
-
-    def show_trung_lien_screen(self):
-        self.trung_lien_screen.start_camera()
-        self.stacked_widget.setCurrentWidget(self.trung_lien_screen)
+        self.db.close()
 
     def show_main_menu(self):
         current_widget = self.stacked_widget.currentWidget()
@@ -289,14 +276,15 @@ class ApplicationController(QMainWindow):
         if current_widget == self.practice_screen:
             self.practice_screen.shutdown_components()
 
-        elif current_widget == self.trung_lien_screen:
-            self.trung_lien_screen.shutdown_components()
-
         self.stacked_widget.setCurrentWidget(self.main_menu)
 
     def show_practice_screen(self):
         self.practice_screen.start_camera()
         self.stacked_widget.setCurrentWidget(self.practice_screen)
+
+    def show_manage_screen(self):
+        self.manage_screen.load_soldiers()
+        self.stacked_widget.setCurrentWidget(self.manage_screen)
 
 
 if __name__ == "__main__":

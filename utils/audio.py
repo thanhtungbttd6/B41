@@ -30,8 +30,6 @@ class AudioManager:
 
         try:
             pygame.mixer.init()
-            # Tăng số kênh để tiếng nổ liên thanh không bị cắt khi bắn nhanh
-            pygame.mixer.set_num_channels(16)
             # Dành riêng kênh 0 cho chuỗi âm thanh nối tiếp
             pygame.mixer.set_reserved(1)
             self._seq_channel = pygame.mixer.Channel(0)
@@ -52,9 +50,8 @@ class AudioManager:
 
         sounds_dir = resource_path(os.path.join("assets", "sounds"))
 
-        # Load các file cứng: shot, miss, hit, explosion (B41),
-        # và tiếng nổ riêng của Trung liên
-        sound_names = ["shot", "explosion", "miss", "hit", "trung_lien_shot"]
+        # Load các file cứng: shot, explosion, miss, hit
+        sound_names = ["shot", "explosion", "miss", "hit"]
 
         for name in sound_names:
             file_name = f"{name}.mp3"
@@ -143,14 +140,3 @@ class AudioManager:
     def play_shot(self):
         """Phát tiếng Nổ súng."""
         self.play_sound("shot")
-
-    def play_trung_lien_shot(self):
-        """Phát tiếng nổ riêng của Trung liên (dùng cho liên thanh).
-
-        Nếu chưa có file assets/sounds/trung_lien_shot.mp3 thì tạm dùng
-        tiếng nổ mặc định (shot.mp3) để chức năng vẫn hoạt động.
-        """
-        if self.sounds and "trung_lien_shot" in self.sounds:
-            self.sounds["trung_lien_shot"].play()
-        else:
-            self.play_shot()

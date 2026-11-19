@@ -138,16 +138,16 @@ class Ui_MainMenuWindow(object):
             QPushButton:focus {{
                 border: 2px solid #93B4FF;
             }}
-            QPushButton#trungLienButton {{
+            QPushButton#statsButton {{
                 color: #FFFFFF;
                 background-color: #0D9488;
                 border-color: #0D9488;
             }}
-            QPushButton#trungLienButton:hover {{
+            QPushButton#statsButton:hover {{
                 background-color: #0F766E;
                 border-color: #0F766E;
             }}
-            QPushButton#trungLienButton:pressed {{
+            QPushButton#statsButton:pressed {{
                 background-color: #115E59;
             }}
             QPushButton#exitButton {{
@@ -257,18 +257,12 @@ class Ui_MainMenuWindow(object):
         self.practice_button.setCursor(Qt.PointingHandCursor)
         buttons_layout.addWidget(self.practice_button)
 
-        # TRUNG LIEN PRACTICE BUTTON
-        self.trung_lien_button = QPushButton(
-            "LUYỆN TẬP TRUNG LIÊN",
-            button_container,
-        )
-        self.trung_lien_button.setObjectName("trungLienButton")
-        self.trung_lien_button.setMinimumSize(button_size)
-        self.trung_lien_button.setCursor(Qt.PointingHandCursor)
-        self.trung_lien_button.setToolTip(
-            "Chức năng luyện tập Trung liên sẽ được phát triển ở phiên bản tiếp theo."
-        )
-        buttons_layout.addWidget(self.trung_lien_button)
+        # MANAGEMENT - STATISTICS BUTTON
+        self.stats_button = QPushButton("QUẢN LÝ - THỐNG KÊ", button_container)
+        self.stats_button.setObjectName("statsButton")
+        self.stats_button.setMinimumSize(button_size)
+        self.stats_button.setCursor(Qt.PointingHandCursor)
+        buttons_layout.addWidget(self.stats_button)
 
         # EXIT BUTTON
         self.exit_button = QPushButton("ĐÓNG ỨNG DỤNG", button_container)

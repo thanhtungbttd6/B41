@@ -9,9 +9,16 @@ import cv2
 import numpy as np
 from PySide6.QtCore import QPoint, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QPixmap, QScreen
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QInputDialog,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+)
 
 from config import APP_DATA_DIR
+from core.database import DatabaseManager, save_shot_image
 from core.triggers import BluetoothTrigger
 from core.worker import ProcessingWorker
 from utils.audio import AudioManager
@@ -26,10 +33,15 @@ class PracticeWindow(QMainWindow):
     request_processing = Signal(np.ndarray, object, str)
 
     def __init__(
-        self, worker: ProcessingWorker, trigger: BluetoothTrigger, config: dict
+        self,
+        worker: ProcessingWorker,
+        trigger: BluetoothTrigger,
+        config: dict,
+        db: DatabaseManager,
     ):
         super().__init__()
         self.config = config
+        self.db = db
         labels = self.config.get("labels", {})
         app_title = labels.get("app_title", "Phần Mềm Bắn Súng")
         self.setWindowTitle(app_title)
@@ -55,6 +67,13 @@ class PracticeWindow(QMainWindow):
         # Mã phát bắn gần nhất: chỉ kết quả của phát này mới được đọc thông báo
         self._last_shot_timestamp = None
 
+        # --- PHIÊN BẮN ---
+        self.active_session_id = None
+        self.is_session_active = False
+        self.shot_counter = 0
+        # Phát bắn đã gửi đi nhưng chưa có kết quả: {timestamp: id phiên}
+        self._pending_shots = {}
+
         self.audio_manager = AudioManager()
         self.video_timer = QTimer(self)
 
@@ -67,18 +86,16 @@ class PracticeWindow(QMainWindow):
         self.gui.refresh_button.clicked.connect(self.refresh_camera_list)
         self.gui.camera_view_label.clicked.connect(self.set_new_center)
 
+        self.gui.session_button.clicked.connect(self.toggle_session)
+        self.gui.soldier_selector.currentIndexChanged.connect(self.reset_ui_state)
+
         self.reset_ui_state()
+        self.populate_soldier_selector()
 
         try:
             self.configured_camera_index = int(self.config.get("camera_index", 0))
         except (ValueError, TypeError):
             self.configured_camera_index = 0
-
-        # Ẩn các nút không còn sử dụng trên UI nếu chúng tồn tại
-        if hasattr(self.gui, "session_button"):
-            self.gui.session_button.hide()
-        if hasattr(self.gui, "soldier_selector"):
-            self.gui.soldier_selector.hide()
 
     def on_camera_selected(self, index):
         cam_idx = self.gui.camera_selector.currentData()
@@ -125,6 +142,8 @@ class PracticeWindow(QMainWindow):
         logger.info("Màn hình luyện tập: Kích hoạt camera và trigger...")
         if self.bt_trigger:
             self.bt_trigger.activate()
+        if not self.is_session_active:
+            self.populate_soldier_selector()
         self.refresh_camera_list()
 
     def connect_camera(self, index):
@@ -238,6 +257,8 @@ class PracticeWindow(QMainWindow):
         # Tạo thẳng mã Timestamp và truyền cho Worker tự xử lý việc lưu ảnh Dataset.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
         self._last_shot_timestamp = timestamp
+        if self.is_session_active:
+            self._pending_shots[timestamp] = self.active_session_id
 
         # Trình tự âm thanh: tiếng bắn -> tiếng nổ -> (khi có kết quả) thông báo
         self.audio_manager.start_sequence(["shot", "explosion"])
@@ -251,6 +272,8 @@ class PracticeWindow(QMainWindow):
         display_target_name = result.get("target_name")
         score = result.get("score", 0)
         final_image_to_display = result.get("result_frame")
+
+        self._record_shot(result)
 
         # Thông báo kết quả được xếp hàng phía sau tiếng bắn và tiếng nổ.
         # Bỏ qua âm thanh của kết quả cũ (đã có phát bắn mới hơn) hoặc khi
@@ -277,6 +300,7 @@ class PracticeWindow(QMainWindow):
 
     def shutdown_components(self):
         self._last_shot_timestamp = None
+        self._pending_shots.clear()
         self.audio_manager.stop_sequence()
         self.disconnect_camera()
         if self.bt_trigger:
@@ -340,8 +364,212 @@ class PracticeWindow(QMainWindow):
     def on_zoom_changed(self, value):
         self.zoom_level = value / 10.0
 
-    def reset_ui_state(self):
+    def reset_ui_state(self, *_):
+        """Đưa vùng kết quả về trạng thái ban đầu (không ảnh hưởng phiên đang chạy)."""
         self.gui.target_name_label.setText("Tên mục tiêu: --")
         self.gui.score_label.setText("Kết quả: --")
+        self.gui.score_label.setStyleSheet("")
         self.gui.result_image_label.setText("Chưa có ảnh kết quả")
         self.gui.result_image_label.setPixmap(QPixmap())
+
+    # ==============================================
+    # PHIÊN BẮN & NGƯỜI BẮN
+    # ==============================================
+
+    def _trainee_term(self) -> str:
+        return self.config.get("labels", {}).get("trainee", "Chiến sĩ")
+
+    def populate_soldier_selector(self):
+        """Nạp danh sách người bắn từ cơ sở dữ liệu (giữ lại người đang chọn)."""
+        previous = self.gui.soldier_selector.currentData()
+        previous_id = previous.get("id") if isinstance(previous, dict) else None
+
+        self.gui.soldier_selector.blockSignals(True)
+        self.gui.soldier_selector.clear()
+        soldiers = self.db.get_all_soldiers()
+
+        if soldiers:
+            select_index = 0
+            for index, soldier in enumerate(soldiers):
+                name = soldier.get("name") or "Không tên"
+                class_name = soldier.get("class_name")
+                text = f"{name}  -  {class_name}" if class_name else name
+                self.gui.soldier_selector.addItem(text, userData=soldier)
+                if soldier.get("id") == previous_id:
+                    select_index = index
+            self.gui.soldier_selector.setCurrentIndex(select_index)
+        else:
+            prompt = self.config.get("labels", {}).get(
+                "practice_no_trainees_in_selector", "Chưa có {trainee} nào"
+            )
+            self.gui.soldier_selector.addItem(
+                prompt.format(trainee=self._trainee_term().lower())
+            )
+        self.gui.soldier_selector.blockSignals(False)
+
+    def toggle_session(self):
+        if self.is_session_active:
+            self._end_session()
+        else:
+            self._start_session()
+
+    def _start_session(self):
+        if not self.is_camera_connected:
+            QMessageBox.warning(
+                self,
+                "Chưa kết nối Camera",
+                "Vui lòng kết nối camera USB và chờ tín hiệu hiển thị "
+                "trước khi bắt đầu.",
+            )
+            return
+
+        soldier = self.gui.soldier_selector.currentData()
+        if not isinstance(soldier, dict):
+            prompt = self.config.get("labels", {}).get(
+                "practice_select_trainee_first",
+                "Vui lòng chọn một {trainee} trước khi bắt đầu.",
+            )
+            QMessageBox.warning(
+                self,
+                self._trainee_term(),
+                prompt.format(trainee=self._trainee_term().lower()),
+            )
+            return
+
+        session_id = self.db.create_session(soldier["id"])
+        if not session_id:
+            QMessageBox.critical(
+                self, "Lỗi dữ liệu", "Không thể tạo phiên tập mới trong cơ sở dữ liệu."
+            )
+            return
+
+        self.active_session_id = session_id
+        self.is_session_active = True
+        self.shot_counter = 0
+        self._pending_shots.clear()
+        self.reset_ui_state()
+        logger.info(
+            f"Bắt đầu phiên tập ID {session_id} cho người bắn ID {soldier['id']}"
+        )
+        self._update_session_ui()
+
+    def _end_session(self):
+        if self._pending_shots:
+            QMessageBox.information(
+                self,
+                "Đang xử lý",
+                "Phát bắn vừa rồi đang được xử lý.\nVui lòng chờ vài giây rồi kết thúc.",
+            )
+            return
+
+        shot_count = self.db.get_shot_count_for_session(self.active_session_id)
+
+        if shot_count == 0:
+            box = QMessageBox(self)
+            box.setWindowTitle("Xác nhận Kết thúc")
+            box.setText("Bạn chưa thực hiện phát bắn nào.")
+            box.setInformativeText("Bạn có muốn kết thúc và xóa luôn phiên tập này?")
+            box.setIcon(QMessageBox.Question)
+            delete_button = box.addButton(
+                "Kết thúc và Xóa", QMessageBox.DestructiveRole
+            )
+            box.addButton("Hủy", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() != delete_button:
+                return
+            self.db.delete_session(self.active_session_id)
+            logger.info(f"Đã xóa phiên trống ID {self.active_session_id}")
+            self._finalize_session()
+            return
+
+        soldier = self.gui.soldier_selector.currentData()
+        soldier_id = soldier["id"] if isinstance(soldier, dict) else None
+        default_name = f"Phiên tập #{self.active_session_id}"
+
+        while True:
+            name, ok = QInputDialog.getText(
+                self,
+                "Đặt tên Phiên tập",
+                "Nhập tên để lưu lại phiên tập này:",
+                QLineEdit.Normal,
+                default_name,
+            )
+            if not ok:
+                return  # Hủy: tiếp tục phiên
+            final_name = name.strip() or default_name
+            if self.db.session_name_exists(
+                final_name,
+                soldier_id=soldier_id,
+                exclude_session_id=self.active_session_id,
+            ):
+                QMessageBox.warning(
+                    self,
+                    "Tên bị trùng",
+                    f"{self._trainee_term()} này đã có phiên tập tên '{final_name}'."
+                    "\nVui lòng chọn một tên khác.",
+                )
+                default_name = final_name
+                continue
+            self.db.update_session_name(self.active_session_id, final_name)
+            self._finalize_session()
+            return
+
+    def _finalize_session(self):
+        self.db.end_session(self.active_session_id)
+        logger.info(f"Đã kết thúc phiên tập ID {self.active_session_id}")
+        self.is_session_active = False
+        self.active_session_id = None
+        self.shot_counter = 0
+        self._pending_shots.clear()
+        self._update_session_ui()
+
+    def _update_session_ui(self):
+        """Đồng bộ nút/nhãn với trạng thái phiên (đang bắn hoặc chưa bắt đầu)."""
+        active = self.is_session_active
+        button = self.gui.session_button
+        button.setText("KẾT THÚC" if active else "BẮT ĐẦU")
+        button.setObjectName("danger" if active else "")
+        button.style().unpolish(button)
+        button.style().polish(button)
+
+        self.gui.back_button.setEnabled(not active)
+        self.gui.soldier_selector.setEnabled(not active)
+        if active:
+            self.gui.session_status_label.setText(
+                f"Đang ghi phiên - đã lưu {self.shot_counter} phát"
+            )
+        else:
+            self.gui.session_status_label.setText(
+                "Chưa bắt đầu phiên - kết quả không được lưu"
+            )
+
+    def _record_shot(self, result: dict):
+        """Lưu kết quả của một phát bắn vào phiên (nếu phát này thuộc một phiên)."""
+        session_id = self._pending_shots.pop(result.get("image_path"), None)
+        if session_id is None:
+            return
+        if result.get("target_detected_raw") == "ERROR":
+            logger.warning("Bỏ qua phát bắn bị lỗi model AI, không lưu vào phiên.")
+            return
+
+        self.shot_counter += 1
+        image_path = save_shot_image(
+            session_id, self.shot_counter, result.get("result_frame")
+        )
+        self.db.add_shot(
+            session_id=session_id,
+            shot_number=self.shot_counter,
+            target_detected=result.get("target_detected_raw"),
+            score=1 if result.get("score") == 1 else 0,
+            coords=result.get("coords"),
+            image_path=image_path,
+        )
+        self._update_session_ui()
+
+    def abort_session_on_exit(self):
+        """Gọi khi đóng ứng dụng: xóa phiên trống, giữ phiên đã có phát bắn."""
+        if self.is_session_active and self.active_session_id:
+            if self.db.get_shot_count_for_session(self.active_session_id) == 0:
+                self.db.delete_session(self.active_session_id)
+        self.is_session_active = False
+        self.active_session_id = None

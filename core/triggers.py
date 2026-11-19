@@ -10,15 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class BluetoothTrigger(QObject):
-    # Tín hiệu cũ (B41 + Trung liên bắn đơn): có cooldown chống đúp cò
     triggered = Signal()
-    # Tín hiệu mới (Trung liên liên thanh): bắt đầu đè cò / nhả cò
-    pressed = Signal()
-    released = Signal()
-
-    # Nếu quá thời gian này không có sự kiện phím nào mà vẫn chưa thấy nhả,
-    # coi như remote bị kẹt tín hiệu nhả và cho phép nhận lần bóp cò mới.
-    HOLD_STALE_TIMEOUT = 1.5
 
     def __init__(self):
         super().__init__()
@@ -27,10 +19,6 @@ class BluetoothTrigger(QObject):
         self.is_active = False
         self.last_shot_time = 0
         self.cooldown = 0.5  # Nghỉ 0.5 giây giữa mỗi phát bắn để chống đúp cò
-
-        # Theo dõi trạng thái đè cò (chỉ dùng cho tín hiệu pressed/released)
-        self._key_down = False
-        self._last_key_event = 0.0
 
     def _is_trigger_key(self, key) -> bool:
         """Kiểm tra phím bấm (bao quát cả chuẩn pynput và mã Virtual Key của Windows)."""
@@ -47,38 +35,18 @@ class BluetoothTrigger(QObject):
         # Bỏ comment dòng dưới nếu muốn xem Terminal in ra chính xác nút bạn bấm là gì
         # logger.info(f"[Debug] Phím vừa bấm: {key}")
 
-        if not self._is_trigger_key(key):
-            return
-
-        current_time = time.time()
-
-        # --- Theo dõi đè cò: chỉ phát 'pressed' ở lần nhấn đầu tiên ---
-        # (Windows tự lặp sự kiện on_press khi giữ phím, nên cần lọc)
-        if (
-            self._key_down
-            and current_time - self._last_key_event > self.HOLD_STALE_TIMEOUT
-        ):
-            self._key_down = False
-        self._last_key_event = current_time
-
-        if not self._key_down:
-            self._key_down = True
-            self.pressed.emit()
-
-        # --- Logic cũ giữ nguyên: tín hiệu bắn đơn có cooldown ---
-        if current_time - self.last_shot_time > self.cooldown:
-            self.last_shot_time = current_time
-            logger.info(f"🎯 Phát hiện tín hiệu bóp cò hợp lệ từ phím: {key}")
-            self.triggered.emit()
-        else:
-            logger.info("⏳ Bỏ qua tín hiệu (đang trong thời gian cooldown).")
+        if self._is_trigger_key(key):
+            current_time = time.time()
+            if current_time - self.last_shot_time > self.cooldown:
+                self.last_shot_time = current_time
+                logger.info(f"🎯 Phát hiện tín hiệu bóp cò hợp lệ từ phím: {key}")
+                self.triggered.emit()
+            else:
+                logger.info("⏳ Bỏ qua tín hiệu (đang trong thời gian cooldown).")
 
     def on_release(self, key):
-        # Logic bắn đơn vẫn bỏ qua việc nhả phím (tránh kẹt cò từ remote Bluetooth).
-        # Chỉ dùng sự kiện nhả để báo kết thúc đè cò cho chế độ liên thanh.
-        if self._is_trigger_key(key) and self._key_down:
-            self._key_down = False
-            self.released.emit()
+        # Bỏ qua việc nhả phím để tránh kẹt cò từ remote Bluetooth
+        pass
 
     def activate(self):
         """Bật chức năng lắng nghe."""
