@@ -1,6 +1,7 @@
 {
     "camera_index": 0,
     "yolo_model_name": "my_modelv8m.pt",
+    "result_delay_seconds": 1.5,
     "main_logo": "main_logo.png",
     "left_logo": "left_logo.png",
     "right_logo": "right_logo.png",

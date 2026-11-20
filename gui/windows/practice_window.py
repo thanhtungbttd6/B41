@@ -1,7 +1,14 @@
 # file: gui/windows/practice_window.py
 
 import logging
-from PySide6.QtWidgets import QMainWindow, QMessageBox, QApplication, QInputDialog, QLineEdit, QPushButton
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QMessageBox,
+    QApplication,
+    QInputDialog,
+    QLineEdit,
+    QPushButton,
+)
 from PySide6.QtCore import QTimer, Signal, QThread, Slot, QPoint
 import cv2
 import numpy as np
@@ -10,6 +17,7 @@ import shutil
 import sys
 import os
 import time
+from collections import deque
 from config import APP_DATA_DIR
 from datetime import datetime
 from PySide6.QtGui import QScreen, QPixmap, QFont
@@ -24,10 +32,13 @@ from core.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
+
 class PracticeWindow(QMainWindow):
     request_processing = Signal(np.ndarray, object, str)
 
-    def __init__(self, worker: ProcessingWorker, trigger: BluetoothTrigger, config: dict):
+    def __init__(
+        self, worker: ProcessingWorker, trigger: BluetoothTrigger, config: dict
+    ):
         super().__init__()
         self.config = config
         labels = self.config.get("labels", {})
@@ -35,10 +46,10 @@ class PracticeWindow(QMainWindow):
         self.setWindowTitle(app_title)
         screen = QScreen.availableGeometry(QApplication.primaryScreen())
         self.setGeometry(screen)
-        
+
         self.gui = MainGui(self.config)
         self.setCentralWidget(self.gui)
-        
+
         self.worker = worker
         self.bt_trigger = trigger
         self.active_session_id = None
@@ -51,15 +62,23 @@ class PracticeWindow(QMainWindow):
         self.shot_counter = 0
         self.frame_read_failures = 0
         self.FRAME_FAILURE_THRESHOLD = 3
-        
+
+        # --- ĐỘ TRỄ THÔNG BÁO KẾT QUẢ SAU TIẾNG SÚNG (config.json: result_delay_seconds) ---
+        self.result_delay_seconds = self._read_result_delay()
+        self._pending_shot_times = (
+            deque()
+        )  # mốc thời gian phát tiếng súng, theo thứ tự bắn
+        self._announce_epoch = 0  # tăng lên để hủy các thông báo đang chờ
+        logger.info(f"Độ trễ thông báo kết quả: {self.result_delay_seconds}s")
+
         # --- CẤU HÌNH TÂM XANH LÁ (ĐƯỜNG NGẮM ĐÚNG) ---
         self.is_green_crosshair_active = False
-        self.green_crosshair_offset_y = 20 # Mặc định nằm dưới tâm đỏ 20 pixel
-        
+        self.green_crosshair_offset_y = 20  # Mặc định nằm dưới tâm đỏ 20 pixel
+
         self.btn_green_crosshair = QPushButton("Thêm đường ngắm đúng")
         self.btn_green_crosshair.setCheckable(True)
         self.btn_green_crosshair.clicked.connect(self.toggle_green_crosshair)
-        
+
         # Chèn nút vào layout chứa nút calibrate một cách an toàn
         calibrate_parent = self.gui.calibrate_button.parentWidget()
         if calibrate_parent and calibrate_parent.layout():
@@ -70,23 +89,23 @@ class PracticeWindow(QMainWindow):
 
         self.clean_zoomed_frame_for_processing = None
         self.shot_point_on_zoomed_frame = None
-        
+
         self.audio_manager = AudioManager()
         self.video_timer = QTimer(self)
         self.db_manager = DatabaseManager()
-        
+
         # --- KẾT NỐI TÍN HIỆU ---
         self.video_timer.timeout.connect(self.update_frame)
         self.gui.calibrate_button.clicked.connect(self.toggle_calibration_mode)
         self.gui.zoom_slider.valueChanged.connect(self.on_zoom_changed)
-        
+
         self.gui.camera_selector.currentIndexChanged.connect(self.on_camera_selected)
         self.gui.refresh_button.clicked.connect(self.refresh_camera_list)
-        
+
         self.gui.camera_view_label.clicked.connect(self.set_new_center)
         self.gui.session_button.clicked.connect(self.toggle_session)
         self.gui.soldier_selector.currentIndexChanged.connect(self.reset_ui_state)
-        
+
         self.populate_soldier_selector()
         self.reset_ui_state()
 
@@ -94,10 +113,21 @@ class PracticeWindow(QMainWindow):
             self.configured_camera_index = int(self.config.get("camera_index", 0))
         except (ValueError, TypeError):
             self.configured_camera_index = 0
-            
+
         self.save_dir = os.path.join(APP_DATA_DIR, "captured_images")
         os.makedirs(self.save_dir, exist_ok=True)
         logger.info(f"Thư mục lưu ảnh được thiết lập tại: {self.save_dir}")
+
+    def _read_result_delay(self) -> float:
+        """Đọc số giây (có thể thập phân) từ config; giá trị sai/âm/NaN -> 0."""
+        try:
+            value = float(self.config.get("result_delay_seconds", 0))
+        except (ValueError, TypeError):
+            logger.warning("result_delay_seconds không hợp lệ, dùng 0s.")
+            return 0.0
+        if value != value or value < 0:  # NaN hoặc số âm
+            return 0.0
+        return min(value, 30.0)  # chặn trên để tránh cấu hình nhầm
 
     def toggle_green_crosshair(self):
         self.is_green_crosshair_active = self.btn_green_crosshair.isChecked()
@@ -121,7 +151,12 @@ class PracticeWindow(QMainWindow):
         cam_idx = self.gui.camera_selector.currentData()
         if cam_idx is None:
             return
-        if self.cam and hasattr(self.cam, 'index') and self.cam.index == cam_idx and self.cam.isOpened():
+        if (
+            self.cam
+            and hasattr(self.cam, "index")
+            and self.cam.index == cam_idx
+            and self.cam.isOpened()
+        ):
             return
 
         logger.info(f"Người dùng chọn chuyển sang Camera {cam_idx}")
@@ -132,20 +167,20 @@ class PracticeWindow(QMainWindow):
         logger.info("Đang làm mới danh sách camera...")
         self.gui.camera_selector.blockSignals(True)
         self.gui.camera_selector.clear()
-        
+
         available_indexes = find_available_cameras()
-        
+
         if not available_indexes:
             self.gui.camera_selector.addItem("Không tìm thấy Camera", None)
             self.disconnect_camera("Không tìm thấy thiết bị nào")
         else:
             target_index = self.config.get("camera_index", 0)
-            best_match_index = 0 
-            
+            best_match_index = 0
+
             for i, cam_idx in enumerate(available_indexes):
                 display_name = f"Camera {cam_idx}"
                 self.gui.camera_selector.addItem(display_name, cam_idx)
-                
+
                 if cam_idx == target_index:
                     best_match_index = i
 
@@ -164,10 +199,10 @@ class PracticeWindow(QMainWindow):
 
     def connect_camera(self, index):
         self.disconnect_camera()
-        
+
         logger.info(f"Đang thử kết nối camera index {index}...")
         self.cam = Camera(index)
-        
+
         if not self.cam.isOpened():
             logger.error(f"Lỗi driver camera {index}.")
             self.gui.clear_video_feed(f"Lỗi kết nối Camera {index}")
@@ -182,7 +217,7 @@ class PracticeWindow(QMainWindow):
                 break
             time.sleep(0.1)
             attempts += 1
-            
+
         if success:
             self.is_camera_connected = True
             self.video_timer.start(30)
@@ -208,7 +243,9 @@ class PracticeWindow(QMainWindow):
         if not ret or frame is None:
             self.frame_read_failures += 1
             if self.frame_read_failures > self.FRAME_FAILURE_THRESHOLD:
-                self.disconnect_camera("Mất kết nối với camera...\nVui lòng kiểm tra và nhấn 'Làm mới'.")
+                self.disconnect_camera(
+                    "Mất kết nối với camera...\nVui lòng kiểm tra và nhấn 'Làm mới'."
+                )
             return
 
         self.frame_read_failures = 0
@@ -216,9 +253,12 @@ class PracticeWindow(QMainWindow):
             self.is_camera_connected = True
 
         processed_frame = self.crop_and_resize_frame(frame)
-        if processed_frame is None: return
+        if processed_frame is None:
+            return
 
-        self.clean_zoomed_frame_for_processing = self.apply_digital_zoom(processed_frame, self.zoom_level)
+        self.clean_zoomed_frame_for_processing = self.apply_digital_zoom(
+            processed_frame, self.zoom_level
+        )
 
         point_to_draw = None
         h_orig, w_orig, _ = processed_frame.shape
@@ -228,7 +268,7 @@ class PracticeWindow(QMainWindow):
             cx, cy = self.calibrated_center
             start_x_on_orig = (w_orig - int(w_orig / self.zoom_level)) // 2
             start_y_on_orig = (h_orig - int(h_orig / self.zoom_level)) // 2
-            
+
             if cx >= start_x_on_orig and cy >= start_y_on_orig:
                 zoomed_cx = int((cx - start_x_on_orig) * self.zoom_level)
                 zoomed_cy = int((cy - start_y_on_orig) * self.zoom_level)
@@ -240,16 +280,25 @@ class PracticeWindow(QMainWindow):
         self.shot_point_on_zoomed_frame = point_to_draw
 
         frame_to_display = self.clean_zoomed_frame_for_processing.copy()
-        
+
         if self.shot_point_on_zoomed_frame:
-            cv2.drawMarker(frame_to_display, self.shot_point_on_zoomed_frame, (0, 0, 255), cv2.MARKER_CROSS, 15, 1)
-            
-            if getattr(self, 'is_green_crosshair_active', False):
+            cv2.drawMarker(
+                frame_to_display,
+                self.shot_point_on_zoomed_frame,
+                (0, 0, 255),
+                cv2.MARKER_CROSS,
+                15,
+                1,
+            )
+
+            if getattr(self, "is_green_crosshair_active", False):
                 gx = self.shot_point_on_zoomed_frame[0]
                 gy = self.shot_point_on_zoomed_frame[1] + self.green_crosshair_offset_y
                 gy = max(0, min(gy, frame_to_display.shape[0] - 1))
-                cv2.drawMarker(frame_to_display, (gx, gy), (0, 255, 0), cv2.MARKER_CROSS, 15, 1)
-        
+                cv2.drawMarker(
+                    frame_to_display, (gx, gy), (0, 255, 0), cv2.MARKER_CROSS, 15, 1
+                )
+
         self.gui.display_frame(frame_to_display)
 
     def capture_photo(self):
@@ -264,18 +313,24 @@ class PracticeWindow(QMainWindow):
             return
 
         shot_center_for_analysis = self.shot_point_on_zoomed_frame
-        
+
         # --- BỔ SUNG: IN TÂM XANH LÊN ẢNH TRƯỚC KHI GỬI AI ---
-        if getattr(self, 'is_green_crosshair_active', False) and shot_center_for_analysis:
+        if (
+            getattr(self, "is_green_crosshair_active", False)
+            and shot_center_for_analysis
+        ):
             gx = shot_center_for_analysis[0]
             gy = shot_center_for_analysis[1] + self.green_crosshair_offset_y
             gy = max(0, min(gy, frame_for_analysis.shape[0] - 1))
             # Vẽ đậm hơn (độ dày = 2) để không bị mờ nét khi bẻ cong ảnh (warp)
-            cv2.drawMarker(frame_for_analysis, (gx, gy), (0, 255, 0), cv2.MARKER_CROSS, 15, 2)
+            cv2.drawMarker(
+                frame_for_analysis, (gx, gy), (0, 255, 0), cv2.MARKER_CROSS, 15, 2
+            )
         # -----------------------------------------------------
 
-        self.audio_manager.play_sound('shot')
-        
+        self.audio_manager.play_sound("shot")
+        shot_sound_time = time.monotonic()  # mốc để tính độ trễ thông báo kết quả
+
         try:
             image_to_save = self.gui.camera_view_label._pixmap.toImage()
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
@@ -284,128 +339,270 @@ class PracticeWindow(QMainWindow):
             image_to_save.save(save_path, "PNG")
             logger.info(f"Đã lưu ảnh tại: {save_path}")
 
-            self.request_processing.emit(frame_for_analysis, shot_center_for_analysis, save_path)
+            self._pending_shot_times.append(shot_sound_time)
+            self.request_processing.emit(
+                frame_for_analysis, shot_center_for_analysis, save_path
+            )
             logger.info("GUI: Đã gửi yêu cầu xử lý cho worker.")
-            
+
         except Exception as e:
             logger.error(f"Lỗi khi đang lưu ảnh: {e}")
 
     @Slot(dict)
     def on_processing_finished(self, result):
         logger.info("GUI: Nhận được kết quả đã xử lý từ worker.")
-        display_target_name = result.get('target_name')
-        score = result.get('score')
-        
-        final_image_to_display = result.get('result_frame')
+        display_target_name = result.get("target_name")
+        score = result.get("score")
+
+        final_image_to_display = result.get("result_frame")
 
         if self.active_session_id is not None:
             self.shot_counter += 1
             self.db_manager.add_shot(
-                session_id=self.active_session_id, shot_number=self.shot_counter, 
-                score=score, target_detected=result.get('target_detected_raw'), 
-                coords=result.get('coords'), image_path=result.get('image_path')
+                session_id=self.active_session_id,
+                shot_number=self.shot_counter,
+                score=score,
+                target_detected=result.get("target_detected_raw"),
+                coords=result.get("coords"),
+                image_path=result.get("image_path"),
             )
 
-        if score is not None and score > 0:
-            self.audio_manager.play_score(score)
-        else:
-            self.audio_manager.play_sound('miss')
-
-        self.gui.update_results(
-            time_str=result.get('time_str'),
-            target_name=display_target_name,
-            score=score,
-            result_frame=final_image_to_display
+        # Thông báo (âm thanh + hiển thị) chờ đủ N giây tính từ tiếng súng.
+        # Thời gian AI xử lý đã được trừ vào độ trễ; nếu xử lý lâu hơn N giây thì báo ngay.
+        shot_time = (
+            self._pending_shot_times.popleft()
+            if self._pending_shot_times
+            else time.monotonic()
+        )
+        remaining_ms = max(
+            0, int((self.result_delay_seconds - (time.monotonic() - shot_time)) * 1000)
         )
 
-    def toggle_session(self):
-        labels = self.config.get("labels", {}); trainee_term = labels.get("trainee", "Chiến sĩ")
-        if self.is_session_active:
-            shot_count = self.db_manager.get_shot_count_for_session(self.active_session_id)
-            if shot_count == 0:
-                msg_box = QMessageBox(self); msg_box.setWindowTitle("Xác nhận Kết thúc"); msg_box.setText("Bạn chưa thực hiện phát bắn nào.")
-                msg_box.setInformativeText("Bạn có muốn kết thúc và xóa luôn phiên tập này?"); msg_box.setIcon(QMessageBox.Question)
-                delete_button = msg_box.addButton("Kết thúc và Xóa", QMessageBox.DestructiveRole)
-                cancel_button = msg_box.addButton("Hủy", QMessageBox.RejectRole); msg_box.exec()
-                if msg_box.clickedButton() == delete_button: self.db_manager.delete_session(self.active_session_id); logger.info(f"Đã xóa phiên trống ID: {self.active_session_id}"); self.finalize_session()
-                else: return
+        epoch = self._announce_epoch
+
+        def announce():
+            if epoch != self._announce_epoch:  # phiên/màn hình đã reset -> bỏ qua
+                return
+            if score is not None and score > 0:
+                self.audio_manager.play_score(score)
             else:
-                current_soldier = self.gui.soldier_selector.currentData(); soldier_id = current_soldier['id']
+                self.audio_manager.play_sound("miss")
+            self.gui.update_results(
+                time_str=result.get("time_str"),
+                target_name=display_target_name,
+                score=score,
+                result_frame=final_image_to_display,
+            )
+
+        if remaining_ms > 0:
+            QTimer.singleShot(remaining_ms, self, announce)
+        else:
+            announce()
+
+    def toggle_session(self):
+        labels = self.config.get("labels", {})
+        trainee_term = labels.get("trainee", "Chiến sĩ")
+        if self.is_session_active:
+            shot_count = self.db_manager.get_shot_count_for_session(
+                self.active_session_id
+            )
+            if shot_count == 0:
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Xác nhận Kết thúc")
+                msg_box.setText("Bạn chưa thực hiện phát bắn nào.")
+                msg_box.setInformativeText(
+                    "Bạn có muốn kết thúc và xóa luôn phiên tập này?"
+                )
+                msg_box.setIcon(QMessageBox.Question)
+                delete_button = msg_box.addButton(
+                    "Kết thúc và Xóa", QMessageBox.DestructiveRole
+                )
+                cancel_button = msg_box.addButton("Hủy", QMessageBox.RejectRole)
+                msg_box.exec()
+                if msg_box.clickedButton() == delete_button:
+                    self.db_manager.delete_session(self.active_session_id)
+                    logger.info(f"Đã xóa phiên trống ID: {self.active_session_id}")
+                    self.finalize_session()
+                else:
+                    return
+            else:
+                current_soldier = self.gui.soldier_selector.currentData()
+                soldier_id = current_soldier["id"]
                 while True:
                     default_name = f"Phiên tập #{self.active_session_id}"
-                    session_name, ok = QInputDialog.getText(self, "Đặt tên Phiên tập", "Nhập tên để lưu lại phiên tập này:", QLineEdit.Normal, default_name)
-                    if not ok: return
-                    final_name = session_name.strip() if session_name.strip() else default_name
-                    if not self.db_manager.session_name_exists(final_name, soldier_id=soldier_id): self.db_manager.update_session_name(self.active_session_id, final_name); self.finalize_session(); break
-                    else: QMessageBox.warning(self, "Tên bị trùng", f"{trainee_term} này đã có phiên tập tên '{final_name}'.\nVui lòng chọn một tên khác.")
+                    session_name, ok = QInputDialog.getText(
+                        self,
+                        "Đặt tên Phiên tập",
+                        "Nhập tên để lưu lại phiên tập này:",
+                        QLineEdit.Normal,
+                        default_name,
+                    )
+                    if not ok:
+                        return
+                    final_name = (
+                        session_name.strip() if session_name.strip() else default_name
+                    )
+                    if not self.db_manager.session_name_exists(
+                        final_name, soldier_id=soldier_id
+                    ):
+                        self.db_manager.update_session_name(
+                            self.active_session_id, final_name
+                        )
+                        self.finalize_session()
+                        break
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Tên bị trùng",
+                            f"{trainee_term} này đã có phiên tập tên '{final_name}'.\nVui lòng chọn một tên khác.",
+                        )
         else:
-            if not self.is_camera_connected: QMessageBox.warning(self, "Chưa kết nối Camera", "Vui lòng kết nối camera USB và chờ tín hiệu hiển thị trước khi bắt đầu."); return
+            if not self.is_camera_connected:
+                QMessageBox.warning(
+                    self,
+                    "Chưa kết nối Camera",
+                    "Vui lòng kết nối camera USB và chờ tín hiệu hiển thị trước khi bắt đầu.",
+                )
+                return
             selected_soldier = self.gui.soldier_selector.currentData()
             if not selected_soldier:
-                title = labels.get("trainee", "Thông báo"); prompt = labels.get("practice_select_trainee_first", "Vui lòng chọn một {trainee} trước khi bắt đầu.")
-                message = prompt.format(trainee=trainee_term); QMessageBox.warning(self, title, message); return
+                title = labels.get("trainee", "Thông báo")
+                prompt = labels.get(
+                    "practice_select_trainee_first",
+                    "Vui lòng chọn một {trainee} trước khi bắt đầu.",
+                )
+                message = prompt.format(trainee=trainee_term)
+                QMessageBox.warning(self, title, message)
+                return
             try:
-                self.active_session_id = self.db_manager.create_session(selected_soldier['id'])
+                self.active_session_id = self.db_manager.create_session(
+                    selected_soldier["id"]
+                )
                 if self.active_session_id:
-                    self.is_session_active = True; self.shot_counter = 0; logger.info(f"Đã bắt đầu phiên tập mới. ID: {self.active_session_id} cho {trainee_term} ID: {selected_soldier['id']}")
-                    self.gui.session_button.setText("KẾT THÚC"); self.gui.session_button.setObjectName("danger")
-                    self.gui.style().polish(self.gui.session_button); self.gui.back_button.setEnabled(False); self.gui.soldier_selector.setEnabled(False)
-            except Exception as e: logger.error(f"Không thể tạo phiên tập mới: {e}"); QMessageBox.critical(self, "Lỗi Database", "Không thể tạo phiên tập mới trong cơ sở dữ liệu.")
+                    self.is_session_active = True
+                    self.shot_counter = 0
+                    logger.info(
+                        f"Đã bắt đầu phiên tập mới. ID: {self.active_session_id} cho {trainee_term} ID: {selected_soldier['id']}"
+                    )
+                    self.gui.session_button.setText("KẾT THÚC")
+                    self.gui.session_button.setObjectName("danger")
+                    self.gui.style().polish(self.gui.session_button)
+                    self.gui.back_button.setEnabled(False)
+                    self.gui.soldier_selector.setEnabled(False)
+            except Exception as e:
+                logger.error(f"Không thể tạo phiên tập mới: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Lỗi Database",
+                    "Không thể tạo phiên tập mới trong cơ sở dữ liệu.",
+                )
 
     def populate_soldier_selector(self):
-        self.gui.soldier_selector.clear(); soldiers = self.db_manager.get_all_soldiers()
+        self.gui.soldier_selector.clear()
+        soldiers = self.db_manager.get_all_soldiers()
         if soldiers:
             for soldier in soldiers:
-                name = soldier.get('name', 'Không tên'); class_name = soldier.get('class_name')
-                display_text = f"{name}  -  {class_name}" if class_name else name; self.gui.soldier_selector.addItem(display_text, userData=soldier)
+                name = soldier.get("name", "Không tên")
+                class_name = soldier.get("class_name")
+                display_text = f"{name}  -  {class_name}" if class_name else name
+                self.gui.soldier_selector.addItem(display_text, userData=soldier)
         else:
-            labels = self.config.get("labels", {}); trainee_term = labels.get("trainee", "Người học")
-            prompt = labels.get("practice_no_trainees_in_selector", "Chưa có {trainee} nào"); message = prompt.format(trainee=trainee_term)
+            labels = self.config.get("labels", {})
+            trainee_term = labels.get("trainee", "Người học")
+            prompt = labels.get(
+                "practice_no_trainees_in_selector", "Chưa có {trainee} nào"
+            )
+            message = prompt.format(trainee=trainee_term)
             self.gui.soldier_selector.addItem(message)
 
     def shutdown_components(self):
-        logger.info("PRACTICE: Dọn dẹp tài nguyên cục bộ..."); self.disconnect_camera()
-        if self.bt_trigger: self.bt_trigger.deactivate()
+        logger.info("PRACTICE: Dọn dẹp tài nguyên cục bộ...")
+        self.disconnect_camera()
+        if self.bt_trigger:
+            self.bt_trigger.deactivate()
         self.reset_ui_state()
 
     def finalize_session(self):
-        self.db_manager.end_session(self.active_session_id); logger.info(f"Đã kết thúc phiên tập ID: {self.active_session_id}")
-        self.is_session_active = False; self.active_session_id = None
-        self.gui.session_button.setText("BẮT ĐẦU"); self.gui.session_button.setObjectName("start_button")
-        self.gui.style().polish(self.gui.session_button); self.gui.back_button.setEnabled(True); self.gui.soldier_selector.setEnabled(True)
+        self.db_manager.end_session(self.active_session_id)
+        logger.info(f"Đã kết thúc phiên tập ID: {self.active_session_id}")
+        self.is_session_active = False
+        self.active_session_id = None
+        self.gui.session_button.setText("BẮT ĐẦU")
+        self.gui.session_button.setObjectName("start_button")
+        self.gui.style().polish(self.gui.session_button)
+        self.gui.back_button.setEnabled(True)
+        self.gui.soldier_selector.setEnabled(True)
 
     def crop_and_resize_frame(self, frame):
-        h, w, _ = frame.shape; target_aspect_ratio = 3.0 / 4.0
-        new_w = int(h * target_aspect_ratio); start_x = (w - new_w) // 2 if w > new_w else 0
-        cropped_frame = frame[:, start_x : start_x + new_w]; return cv2.resize(cropped_frame, self.final_size, interpolation=cv2.INTER_AREA)
+        h, w, _ = frame.shape
+        target_aspect_ratio = 3.0 / 4.0
+        new_w = int(h * target_aspect_ratio)
+        start_x = (w - new_w) // 2 if w > new_w else 0
+        cropped_frame = frame[:, start_x : start_x + new_w]
+        return cv2.resize(cropped_frame, self.final_size, interpolation=cv2.INTER_AREA)
 
     def apply_digital_zoom(self, frame, zoom):
-        if frame is None or zoom <= 1.0: return frame
-        h, w, _ = frame.shape; crop_w, crop_h = int(w / zoom), int(h / zoom)
-        start_x, start_y = (w - crop_w) // 2, (h - crop_h) // 2; cropped = frame[start_y : start_y + crop_h, start_x : start_x + crop_w]
+        if frame is None or zoom <= 1.0:
+            return frame
+        h, w, _ = frame.shape
+        crop_w, crop_h = int(w / zoom), int(h / zoom)
+        start_x, start_y = (w - crop_w) // 2, (h - crop_h) // 2
+        cropped = frame[start_y : start_y + crop_h, start_x : start_x + crop_w]
         return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
     def toggle_calibration_mode(self):
         is_calibrating = not self.gui.camera_view_label._is_calibrating
-        self.gui.camera_view_label.set_calibration_mode(is_calibrating); self.gui.calibrate_button.setText("Hủy" if is_calibrating else "Hiệu chỉnh tâm")
+        self.gui.camera_view_label.set_calibration_mode(is_calibrating)
+        self.gui.calibrate_button.setText("Hủy" if is_calibrating else "Hiệu chỉnh tâm")
 
     def set_new_center(self, click_pos: QPoint):
-        widget_size = self.gui.camera_view_label.size(); img_w, img_h = self.final_size
-        scale = min(widget_size.width() / img_w, widget_size.height() / img_h); display_w, display_h = int(img_w * scale), int(img_h * scale)
-        offset_x, offset_y = (widget_size.width() - display_w) // 2, (widget_size.height() - display_h) // 2
-        if not (offset_x <= click_pos.x() < offset_x + display_w and offset_y <= click_pos.y() < offset_y + display_h): return
-        click_on_display_x = click_pos.x() - offset_x; click_on_display_y = click_pos.y() - offset_y
-        click_on_zoomed_image_x = int(click_on_display_x / scale); click_on_zoomed_image_y = int(click_on_display_y / scale)
-        start_x_on_original = (img_w - int(img_w / self.zoom_level)) // 2; start_y_on_original = (img_h - int(img_h / self.zoom_level)) // 2
-        final_img_x = int(start_x_on_original + (click_on_zoomed_image_x / self.zoom_level)); final_img_y = int(start_y_on_original + (click_on_zoomed_image_y / self.zoom_level))
-        self.calibrated_center = (final_img_x, final_img_y); logger.info(f"Đã cập nhật tâm ngắm mới (trên ảnh gốc 1x) tại: {self.calibrated_center}")
+        widget_size = self.gui.camera_view_label.size()
+        img_w, img_h = self.final_size
+        scale = min(widget_size.width() / img_w, widget_size.height() / img_h)
+        display_w, display_h = int(img_w * scale), int(img_h * scale)
+        offset_x, offset_y = (widget_size.width() - display_w) // 2, (
+            widget_size.height() - display_h
+        ) // 2
+        if not (
+            offset_x <= click_pos.x() < offset_x + display_w
+            and offset_y <= click_pos.y() < offset_y + display_h
+        ):
+            return
+        click_on_display_x = click_pos.x() - offset_x
+        click_on_display_y = click_pos.y() - offset_y
+        click_on_zoomed_image_x = int(click_on_display_x / scale)
+        click_on_zoomed_image_y = int(click_on_display_y / scale)
+        start_x_on_original = (img_w - int(img_w / self.zoom_level)) // 2
+        start_y_on_original = (img_h - int(img_h / self.zoom_level)) // 2
+        final_img_x = int(
+            start_x_on_original + (click_on_zoomed_image_x / self.zoom_level)
+        )
+        final_img_y = int(
+            start_y_on_original + (click_on_zoomed_image_y / self.zoom_level)
+        )
+        self.calibrated_center = (final_img_x, final_img_y)
+        logger.info(
+            f"Đã cập nhật tâm ngắm mới (trên ảnh gốc 1x) tại: {self.calibrated_center}"
+        )
         self.toggle_calibration_mode()
 
-    def on_zoom_changed(self, value): self.zoom_level = value / 10.0
+    def on_zoom_changed(self, value):
+        self.zoom_level = value / 10.0
 
     def reset_ui_state(self):
-        logger.info("Resetting Practice UI to default state."); self.gui.time_label.setText("Thời gian: --:--:--"); self.gui.target_name_label.setText("Tên mục tiêu: --")
-        self.gui.score_label.setText("Điểm số: --"); self.gui.result_image_label.setText("Chưa có ảnh kết quả"); self.gui.result_image_label.setPixmap(QPixmap())
-        self.is_session_active = False; self.active_session_id = None; self.shot_counter = 0
-        self.gui.session_button.setText("BẮT ĐẦU"); self.gui.session_button.setObjectName("start_button"); self.gui.style().polish(self.gui.session_button)
-        self.gui.back_button.setEnabled(True); self.gui.soldier_selector.setEnabled(True)
+        logger.info("Resetting Practice UI to default state.")
+        self._announce_epoch += 1
+        self._pending_shot_times.clear()  # hủy thông báo đang chờ
+        self.gui.time_label.setText("Thời gian: --:--:--")
+        self.gui.target_name_label.setText("Tên mục tiêu: --")
+        self.gui.score_label.setText("Điểm số: --")
+        self.gui.result_image_label.setText("Chưa có ảnh kết quả")
+        self.gui.result_image_label.setPixmap(QPixmap())
+        self.is_session_active = False
+        self.active_session_id = None
+        self.shot_counter = 0
+        self.gui.session_button.setText("BẮT ĐẦU")
+        self.gui.session_button.setObjectName("start_button")
+        self.gui.style().polish(self.gui.session_button)
+        self.gui.back_button.setEnabled(True)
+        self.gui.soldier_selector.setEnabled(True)
