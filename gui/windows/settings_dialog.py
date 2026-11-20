@@ -8,12 +8,14 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
+    QGraphicsOpacityEffect,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSlider,
     QVBoxLayout,
 )
 
@@ -21,6 +23,7 @@ from config import APP_DATA_DIR
 from gui.ui.theme import COLORS
 from utils.branding import (
     DEFAULT_BRANDING,
+    clamp_opacity,
     find_branding_image,
     get_branding,
 )
@@ -31,7 +34,7 @@ logger = logging.getLogger(__name__)
 IMAGE_SLOTS = (
     ("logo_left", "Logo trái", 1024),
     ("logo_right", "Logo phải", 1024),
-    ("watermark_image", "Ảnh nền chìm", 1600),
+    ("watermark_image", "Ảnh nền chìm", 2560),
 )
 IMAGE_FILTER = "Ảnh (*.png *.jpg *.jpeg *.bmp *.webp)"
 CUSTOM_PREFIX = "custom_"
@@ -139,7 +142,11 @@ class SettingsDialog(QDialog):
         ):
             info_layout.addWidget(QLabel(caption))
             edit = QLineEdit()
-            edit.setPlaceholderText("Để trống nếu không dùng")
+            edit.setPlaceholderText(
+                "Gõ \\n để xuống dòng. Để trống nếu không dùng"
+                if key == "title_2"
+                else "Để trống nếu không dùng"
+            )
             self.text_edits[key] = edit
             info_layout.addWidget(edit)
         left.addWidget(info_box)
@@ -201,6 +208,27 @@ class SettingsDialog(QDialog):
             row.addLayout(buttons)
 
             images_layout.addLayout(row)
+
+        # Độ đậm của ảnh nền chìm
+        opacity_row = QHBoxLayout()
+        opacity_row.setSpacing(10)
+        opacity_name = QLabel("Độ đậm nền")
+        opacity_name.setFixedWidth(92)
+        opacity_row.addWidget(opacity_name)
+        self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider.setRange(0, 100)
+        self.opacity_slider.valueChanged.connect(self._on_opacity_changed)
+        opacity_row.addWidget(self.opacity_slider, 1)
+        self.opacity_value_label = QLabel()
+        self.opacity_value_label.setFixedWidth(40)
+        self.opacity_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        opacity_row.addWidget(self.opacity_value_label)
+        images_layout.addLayout(opacity_row)
+
+        # Khung xem trước ảnh nền hiển thị đúng độ đậm đang chọn
+        self._preview_effect = QGraphicsOpacityEffect(self.preview_labels["watermark_image"])
+        self.preview_labels["watermark_image"].setGraphicsEffect(self._preview_effect)
+
         hint_img = QLabel("Có thể để trống. Nên dùng ảnh PNG nền trong suốt cho logo.")
         hint_img.setObjectName("hint")
         hint_img.setWordWrap(True)
@@ -230,6 +258,8 @@ class SettingsDialog(QDialog):
     def _load_values(self):
         for key, edit in self.text_edits.items():
             edit.setText(self._branding.get(key, ""))
+        self.opacity_slider.setValue(self._branding["watermark_opacity"])
+        self._on_opacity_changed(self.opacity_slider.value())
         model_name = self.config.get("yolo_model_name") or "(chưa cấu hình)"
         self.model_name_label.setText(f"Model hiện tại: {model_name}")
         for key, _caption, _max_side in IMAGE_SLOTS:
@@ -238,6 +268,10 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------------
     # HÌNH ẢNH
     # ------------------------------------------------------------------
+    def _on_opacity_changed(self, value: int):
+        self.opacity_value_label.setText(f"{value}%")
+        self._preview_effect.setOpacity(max(0.15, value / 100.0))  # luôn đủ thấy để xem trước
+
     def _current_image_path(self, key: str) -> str:
         """Đường dẫn ảnh đang hiển thị: ảnh mới chọn nếu có, ngược lại ảnh đã lưu."""
         if key in self._pending:
@@ -319,11 +353,13 @@ class SettingsDialog(QDialog):
             self._branding[key] = DEFAULT_BRANDING[key]
             self._pending.pop(key, None)
             self._refresh_preview(key)
+        self.opacity_slider.setValue(DEFAULT_BRANDING["watermark_opacity"])
 
     def _on_save(self):
         result = dict(self._branding)
         for key, edit in self.text_edits.items():
             result[key] = edit.text().strip()
+        result["watermark_opacity"] = clamp_opacity(self.opacity_slider.value())
 
         assets_dir = os.path.join(APP_DATA_DIR, "assets")
         try:

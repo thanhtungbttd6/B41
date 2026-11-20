@@ -52,7 +52,7 @@ class BluetoothTrigger(QObject):
 
         current_time = time.time()
 
-        # --- Theo dõi đè cò: chỉ phát 'pressed' ở lần nhấn đầu tiên ---
+        # --- Theo dõi đè cò: chỉ xử lý ở lần nhấn đầu tiên ---
         # (Windows tự lặp sự kiện on_press khi giữ phím, nên cần lọc)
         if (
             self._key_down
@@ -61,11 +61,14 @@ class BluetoothTrigger(QObject):
             self._key_down = False
         self._last_key_event = current_time
 
-        if not self._key_down:
-            self._key_down = True
-            self.pressed.emit()
+        # Đang đè cò: bỏ qua các sự kiện lặp để mỗi lần đè chỉ tính 1 lần
+        if self._key_down:
+            return
 
-        # --- Logic cũ giữ nguyên: tín hiệu bắn đơn có cooldown ---
+        self._key_down = True
+        self.pressed.emit()
+
+        # --- Tín hiệu bắn đơn: chỉ phát ở lần nhấn đầu tiên, vẫn có cooldown chống đúp cò ---
         if current_time - self.last_shot_time > self.cooldown:
             self.last_shot_time = current_time
             logger.info(f"🎯 Phát hiện tín hiệu bóp cò hợp lệ từ phím: {key}")

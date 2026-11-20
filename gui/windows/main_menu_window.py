@@ -52,10 +52,12 @@ class MainMenuWindow(QMainWindow):
         self._load_single_logo(branding["logo_left"], self.ui.logo_left, "LEFT")
         self._load_single_logo(branding["logo_right"], self.ui.logo_right, "RIGHT")
         self._load_watermark(branding["watermark_image"])
+        self.set_watermark_opacity(branding["watermark_opacity"] / 100.0)
 
     @staticmethod
     def _set_text_or_hide(label, text: str):
-        text = (text or "").strip()
+        # Gõ \n trong ô cài đặt để xuống dòng
+        text = (text or "").replace("\\n", "\n").strip()
         label.setText(text)
         label.setVisible(bool(text))
 

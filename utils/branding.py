@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 TEXT_KEYS = ("title_1", "title_2", "footer_1", "footer_2")
 IMAGE_KEYS = ("logo_left", "logo_right", "watermark_image")
-BRANDING_KEYS = TEXT_KEYS + IMAGE_KEYS
+# Độ đậm ảnh nền chìm, tính theo % (0 = ẩn hoàn toàn, 100 = rõ nét)
+NUMBER_KEYS = ("watermark_opacity",)
+BRANDING_KEYS = TEXT_KEYS + IMAGE_KEYS + NUMBER_KEYS
+MIN_OPACITY, MAX_OPACITY = 0, 100
 
 # Giá trị mặc định (dùng cho nút "Khôi phục mặc định")
 DEFAULT_BRANDING = {
@@ -27,6 +30,7 @@ DEFAULT_BRANDING = {
     "logo_left": "logo_left.png",
     "logo_right": "logo_right.png",
     "watermark_image": "watermark.png",
+    "watermark_opacity": 55,
 }
 
 
@@ -60,11 +64,19 @@ def get_branding(config: dict) -> dict:
     branding = _legacy_branding(config)
     stored = config.get("branding")
     if isinstance(stored, dict):
-        for key in BRANDING_KEYS:
+        for key in TEXT_KEYS + IMAGE_KEYS:
             value = stored.get(key)
             if isinstance(value, str):
                 branding[key] = value
+        opacity = stored.get("watermark_opacity")
+        if isinstance(opacity, (int, float)) and not isinstance(opacity, bool):
+            branding["watermark_opacity"] = clamp_opacity(opacity)
     return branding
+
+
+def clamp_opacity(value) -> int:
+    """Đưa độ đậm về số nguyên trong khoảng 0-100."""
+    return int(max(MIN_OPACITY, min(MAX_OPACITY, round(value))))
 
 
 def footer_text(branding: dict) -> str:
