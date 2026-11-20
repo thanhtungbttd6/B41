@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QPushButton,
     QStackedLayout,
     QGraphicsOpacityEffect,
@@ -15,9 +16,12 @@ from PySide6.QtWidgets import (
 
 from .theme import COLORS, scaled
 
+WATERMARK_MODE = "stretch"
+WATERMARK_OPACITY = 0.25  # 0.0 (ẩn hoàn toàn) đến 1.0 (rõ nét)
+
 
 class WatermarkLabel(QLabel):
-    """Hiển thị ảnh nền in chìm, tự điều chỉnh khi thay đổi kích thước."""
+    """Hiển thị ảnh nền in chìm, tự điều chỉnh theo kích thước cửa sổ."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -25,9 +29,12 @@ class WatermarkLabel(QLabel):
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("background: transparent; border: none;")
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        # Không để kích thước ảnh quyết định kích thước cửa sổ
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.setMinimumSize(1, 1)
 
         self.opacity_effect = QGraphicsOpacityEffect(self)
-        self.opacity_effect.setOpacity(0.45)
+        self.opacity_effect.setOpacity(WATERMARK_OPACITY)
         self.setGraphicsEffect(self.opacity_effect)
 
     def set_watermark(self, pixmap: QPixmap):
@@ -40,22 +47,34 @@ class WatermarkLabel(QLabel):
         self.opacity_effect.setOpacity(max(0.0, min(1.0, opacity)))
 
     def update_watermark(self):
-        """Tự tính kích thước ảnh nền theo cửa sổ."""
+        """Co giãn ảnh theo cửa sổ; tính theo điểm ảnh thật để không bị nhòe
+        trên màn hình có tỷ lệ hiển thị >100%."""
         if self.original_pixmap.isNull():
             self.clear()
             return
 
-        target_width = min(560, int(self.width() * 0.45))
-        target_height = min(560, int(self.height() * 0.72))
-
-        if target_width <= 0 or target_height <= 0:
+        ratio = self.devicePixelRatioF()
+        width = int(self.width() * ratio)
+        height = int(self.height() * ratio)
+        if width <= 0 or height <= 0:
             return
 
+        if WATERMARK_MODE == "fill":
+            mode = Qt.KeepAspectRatioByExpanding
+        elif WATERMARK_MODE == "fit":
+            mode = Qt.KeepAspectRatio
+        else:
+            mode = Qt.IgnoreAspectRatio
+
         scaled_pixmap = self.original_pixmap.scaled(
-            QSize(target_width, target_height),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
+            QSize(width, height), mode, Qt.SmoothTransformation
         )
+        if scaled_pixmap.width() > width or scaled_pixmap.height() > height:
+            x = (scaled_pixmap.width() - width) // 2
+            y = (scaled_pixmap.height() - height) // 2
+            scaled_pixmap = scaled_pixmap.copy(x, y, width, height)
+
+        scaled_pixmap.setDevicePixelRatio(ratio)
         super().setPixmap(scaled_pixmap)
 
     def resizeEvent(self, event):
@@ -150,19 +169,19 @@ class Ui_MainMenuWindow(object):
             QPushButton#statsButton:pressed {{
                 background-color: #115E59;
             }}
-            QPushButton#modelButton {{
+            QPushButton#settingsButton {{
                 color: #FFFFFF;
                 background-color: #7C3AED;
                 border-color: #7C3AED;
             }}
-            QPushButton#modelButton:hover {{
+            QPushButton#settingsButton:hover {{
                 background-color: #6D28D9;
                 border-color: #6D28D9;
             }}
-            QPushButton#modelButton:pressed {{
+            QPushButton#settingsButton:pressed {{
                 background-color: #5B21B6;
             }}
-            QPushButton#modelButton:disabled {{
+            QPushButton#settingsButton:disabled {{
                 background-color: #C4B5FD;
                 border-color: #C4B5FD;
             }}
@@ -280,12 +299,12 @@ class Ui_MainMenuWindow(object):
         self.stats_button.setCursor(Qt.PointingHandCursor)
         buttons_layout.addWidget(self.stats_button)
 
-        # AI MODEL UPDATE BUTTON
-        self.model_button = QPushButton("CẬP NHẬT MODEL AI", button_container)
-        self.model_button.setObjectName("modelButton")
-        self.model_button.setMinimumSize(button_size)
-        self.model_button.setCursor(Qt.PointingHandCursor)
-        buttons_layout.addWidget(self.model_button)
+        # SETTINGS BUTTON
+        self.settings_button = QPushButton("CÀI ĐẶT", button_container)
+        self.settings_button.setObjectName("settingsButton")
+        self.settings_button.setMinimumSize(button_size)
+        self.settings_button.setCursor(Qt.PointingHandCursor)
+        buttons_layout.addWidget(self.settings_button)
 
         # EXIT BUTTON
         self.exit_button = QPushButton("ĐÓNG ỨNG DỤNG", button_container)

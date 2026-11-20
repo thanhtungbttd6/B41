@@ -8,7 +8,7 @@ import sys
 
 from PySide6.QtWidgets import (
     QApplication,
-    QFileDialog,
+    QDialog,
     QInputDialog,
     QMainWindow,
     QMessageBox,
@@ -32,9 +32,11 @@ from config import APP_DATA_DIR
 from core.database import DatabaseManager
 from core.triggers import BluetoothTrigger
 from core.worker import ProcessingWorker
+from gui.windows.settings_dialog import SettingsDialog
 from gui.windows.main_menu_window import MainMenuWindow
 from gui.windows.manage_window import ManageWindow
 from gui.windows.practice_window import PracticeWindow
+from utils.branding import save_config
 from utils.license_manager import verify_key
 from utils.resource_path import resource_path
 
@@ -162,6 +164,7 @@ class ApplicationController(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = self._load_config()
+        self._settings_dialog = None
         self._ensure_assets_are_in_appdata()
 
         app_title = self.config.get("labels", {}).get("app_title", "Phần Mềm Bắn Súng")
@@ -274,7 +277,7 @@ class ApplicationController(QMainWindow):
     def connect_signals(self):
         self.main_menu.practice_button.clicked.connect(self.show_practice_screen)
         self.main_menu.stats_button.clicked.connect(self.show_manage_screen)
-        self.main_menu.model_button.clicked.connect(self.choose_model_file)
+        self.main_menu.settings_button.clicked.connect(self.open_settings)
         self.practice_screen.gui.back_button.clicked.connect(self.show_main_menu)
         self.manage_screen.ui.back_button.clicked.connect(self.show_main_menu)
         self.main_menu.exit_button.clicked.connect(self.close)
@@ -294,27 +297,42 @@ class ApplicationController(QMainWindow):
             self.on_model_update_finished
         )
 
-    def choose_model_file(self):
-        """Mở hộp thoại chọn file .pt mới và gửi sang worker để kiểm tra, nạp."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Chọn file model AI mới (.pt)",
-            "",
-            "Model YOLO (*.pt)",
-        )
-        if not file_path:
-            return
-        self.main_menu.model_button.setEnabled(False)
-        self.main_menu.model_button.setText("ĐANG CẬP NHẬT...")
-        self.model_update_requested.emit(file_path)
+    def open_settings(self):
+        """Mở hộp thoại Cài đặt (thông tin hiển thị, hình ảnh, model AI)."""
+        dialog = SettingsDialog(self.config, self)
+        dialog.model_update_requested.connect(self.model_update_requested)
+        self._settings_dialog = dialog
+        try:
+            accepted = dialog.exec() == QDialog.Accepted
+        finally:
+            self._settings_dialog = None
+        if accepted:
+            self._save_branding(dialog.get_branding())
+
+    def _save_branding(self, branding: dict):
+        """Lưu cấu hình giao diện vào config.json và áp dụng ngay lên menu chính."""
+        self.config["branding"] = branding
+        try:
+            save_config(self.config)
+        except Exception as e:
+            logging.error(f"Không thể lưu config.json: {e}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                "Cài đặt",
+                f"Không thể lưu cài đặt vào ổ đĩa: {e}\n"
+                "Cài đặt chỉ có hiệu lực đến khi đóng phần mềm.",
+            )
+        self.main_menu.apply_branding()
 
     def on_model_update_finished(self, success: bool, message: str):
-        self.main_menu.model_button.setEnabled(True)
-        self.main_menu.model_button.setText("CẬP NHẬT MODEL AI")
+        dialog = self._settings_dialog
+        if dialog is not None:
+            dialog.set_model_busy(False)
+        parent = dialog if dialog is not None else self
         if success:
-            QMessageBox.information(self, "Cập nhật model AI", message)
+            QMessageBox.information(parent, "Cập nhật model AI", message)
         else:
-            QMessageBox.warning(self, "Cập nhật model AI", message)
+            QMessageBox.warning(parent, "Cập nhật model AI", message)
 
     def cleanup_before_exit(self):
         # Giải phóng camera và đóng phiên đang dở (xóa phiên trống) trước khi thoát

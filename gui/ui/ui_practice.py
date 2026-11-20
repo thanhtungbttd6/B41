@@ -203,10 +203,16 @@ class MainGui(QWidget):
                 background-color: {COLORS['primary_soft']};
                 border-color: #B9CCFF;
             }}
-            QPushButton#calibrateButton[calibrating="true"] {{
-                color: #8A5A00;
-                background-color: {COLORS['warning_soft']};
-                border: 1px solid #F1D9A8;
+            QPushButton#calibrateButton {{
+                color: #FFFFFF;
+                background-color: {COLORS['primary']};
+                border: 0;
+            }}
+            QPushButton#calibrateButton:hover {{
+                background-color: {COLORS['primary_hover']};
+            }}
+            QPushButton#calibrateButton:pressed {{
+                background-color: {COLORS['primary_pressed']};
             }}
             QComboBox {{
                 min-height: {s(28)}px;
@@ -364,7 +370,12 @@ class MainGui(QWidget):
 
         # CAMERA CONTROL BAR
         controls_panel = QWidget()
-        controls_panel.setStyleSheet("background: transparent;")
+        controls_panel.setObjectName("cameraControls")
+        # Chỉ làm trong suốt chính thanh này; không dùng khai báo không có bộ chọn vì
+        # nó lan xuống mọi nút con và ghi đè màu nền của chúng.
+        controls_panel.setStyleSheet(
+            "QWidget#cameraControls { background: transparent; }"
+        )
         controls_layout = QHBoxLayout(controls_panel)
         controls_layout.setContentsMargins(
             scaled(2, self.scale_factor),

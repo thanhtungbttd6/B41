@@ -1,15 +1,17 @@
-"""B41 - Main Menu Window Controller."""
+"""Main Menu Window Controller."""
 
-import os
 import logging
+import os
 
-from PySide6.QtWidgets import QMainWindow, QApplication
-from PySide6.QtGui import QPixmap, QIcon
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtWidgets import QApplication, QMainWindow
+
+from config import APP_DATA_DIR
+from utils.branding import find_branding_image, footer_text, get_branding
+from utils.resource_path import resource_path
 
 from ..ui.ui_main_menu import Ui_MainMenuWindow
-from utils.resource_path import resource_path
-from config import APP_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -23,71 +25,44 @@ class MainMenuWindow(QMainWindow):
         self.ui = Ui_MainMenuWindow()
         self.ui.setupUi(self)
 
-        self._apply_labels()
         self._load_application_icon()
-        self._load_logos()
-        self._load_watermark()
+        self.apply_branding()
 
         # GIỮ TƯƠNG THÍCH VỚI APPLICATION CONTROLLER
         self.practice_button = self.ui.practice_button
-        self.exit_button = self.ui.exit_button
         self.stats_button = self.ui.stats_button
-        self.model_button = self.ui.model_button
+        self.settings_button = self.ui.settings_button
+        self.exit_button = self.ui.exit_button
 
     # ==============================================
-    # APPLICATION LABELS
+    # GIAO DIỆN DO NGƯỜI DÙNG CÀI ĐẶT
     # ==============================================
 
-    def _apply_labels(self):
-        self.ui.customer_title_label.setText("SÁNG KIẾN CẢI TIẾN KỸ THUẬT")
+    def apply_branding(self):
+        """Áp dụng tiêu đề, chân trang, logo và ảnh nền chìm theo cài đặt hiện tại.
 
-        self.ui.title_label.setText(
-            "ỨNG DỤNG AI KIỂM TRA ĐƯỜNG NGẮM\n" "SÚNG HỎA LỰC BỘ BINH"
-        )
+        Mục để trống thì không hiển thị. Gọi lại sau khi người dùng lưu cài đặt.
+        """
+        branding = get_branding(self.config)
 
-        labels = self.config.get("labels", {})
-        footer_text = labels.get(
-            "app_footer",
-            "Thông tin cá nhân\nThông tin đơn vị",
-        )
+        self._set_text_or_hide(self.ui.customer_title_label, branding["title_1"])
+        self._set_text_or_hide(self.ui.title_label, branding["title_2"])
+        self._set_text_or_hide(self.ui.footer_label, footer_text(branding))
 
-        if not footer_text:
-            footer_text = "Thông tin cá nhân\nThông tin đơn vị"
+        self._load_single_logo(branding["logo_left"], self.ui.logo_left, "LEFT")
+        self._load_single_logo(branding["logo_right"], self.ui.logo_right, "RIGHT")
+        self._load_watermark(branding["watermark_image"])
 
-        self.ui.footer_label.setText(footer_text)
-
-    # ==============================================
-    # FILE PATH
-    # ==============================================
+    @staticmethod
+    def _set_text_or_hide(label, text: str):
+        # Gõ \n trong ô cài đặt để xuống dòng
+        text = (text or "").replace("\\n", "\n").strip()
+        label.setText(text)
+        label.setVisible(bool(text))
 
     def _find_image_path(self, path_raw):
         """Tìm hình ảnh trong thư mục dữ liệu và thư mục ứng dụng."""
-
-        if not path_raw:
-            return None
-
-        candidates = [
-            path_raw,
-            os.path.join(APP_DATA_DIR, "assets", os.path.basename(path_raw)),
-            os.path.join(APP_DATA_DIR, path_raw),
-            resource_path(path_raw),
-            resource_path(os.path.join("assets", os.path.basename(path_raw))),
-        ]
-
-        checked_paths = set()
-
-        for candidate in candidates:
-            full_path = os.path.abspath(os.path.normpath(candidate))
-
-            if full_path in checked_paths:
-                continue
-
-            checked_paths.add(full_path)
-
-            if os.path.isfile(full_path):
-                return full_path
-
-        return None
+        return find_branding_image(path_raw)
 
     # ==============================================
     # APPLICATION ICON
@@ -130,128 +105,64 @@ class MainMenuWindow(QMainWindow):
     # ==============================================
 
     def _load_single_logo(self, path_raw, label_widget, position_name):
-        """Nạp logo và giữ nguyên tỷ lệ hình ảnh."""
+        """Nạp logo và giữ nguyên tỷ lệ hình ảnh. Để trống hoặc không có ảnh thì xóa logo."""
+
+        label_widget.clear()
+
+        if not path_raw:
+            return
 
         image_path = self._find_image_path(path_raw)
 
         if not image_path:
-            logger.warning(
-                "Không tìm thấy logo %s: %s",
-                position_name,
-                path_raw,
-            )
+            logger.warning("Không tìm thấy logo %s: %s", position_name, path_raw)
             return
 
         pixmap = QPixmap(image_path)
 
         if pixmap.isNull():
-            logger.error(
-                "Không thể đọc logo %s: %s",
-                position_name,
-                image_path,
-            )
+            logger.error("Không thể đọc logo %s: %s", position_name, image_path)
             return
 
-        scaled_pixmap = pixmap.scaled(
-            label_widget.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
+        label_widget.setPixmap(
+            pixmap.scaled(
+                label_widget.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
         )
-
-        label_widget.setPixmap(scaled_pixmap)
 
         logger.info("Đã nạp logo %s: %s", position_name, image_path)
-
-    def _load_logos(self):
-        """Nạp logo trái và logo phải."""
-
-        labels_config = self.config.get("labels", {})
-
-        left_path = (
-            self.config.get("logo_left")
-            or labels_config.get("logo_left")
-            or "logo_left.png"
-        )
-
-        right_path = (
-            self.config.get("logo_right")
-            or labels_config.get("logo_right")
-            or "logo_right.png"
-        )
-
-        self._load_single_logo(
-            left_path,
-            self.ui.logo_left,
-            "LEFT",
-        )
-
-        self._load_single_logo(
-            right_path,
-            self.ui.logo_right,
-            "RIGHT",
-        )
 
     # ==============================================
     # WATERMARK BACKGROUND
     # ==============================================
 
-    def _load_watermark(self):
-        """Nạp ảnh nền in chìm cho màn hình menu."""
+    def _load_watermark(self, watermark_path):
+        """Nạp ảnh nền in chìm cho màn hình menu. Để trống thì xóa ảnh nền."""
 
-        watermark_path = self.config.get("watermark_image") or "watermark.png"
+        self.ui.watermark_label.set_watermark(QPixmap())
+
+        if not watermark_path:
+            return
 
         image_path = self._find_image_path(watermark_path)
 
         if not image_path:
-            logger.warning(
-                "Chưa có ảnh nền watermark. " "Đặt watermark.png trong thư mục assets."
-            )
+            logger.warning("Không tìm thấy ảnh nền in chìm: %s", watermark_path)
             return
 
         pixmap = QPixmap(image_path)
 
         if pixmap.isNull():
-            logger.error(
-                "Không thể đọc ảnh nền watermark: %s",
-                image_path,
-            )
+            logger.error("Không thể đọc ảnh nền in chìm: %s", image_path)
             return
 
         self.ui.watermark_label.set_watermark(pixmap)
 
         logger.info("Đã nạp ảnh nền in chìm: %s", image_path)
 
-    # ==============================================
-    # WATERMARK SETTINGS
-    # ==============================================
-
     def set_watermark_opacity(self, opacity: float):
         """Điều chỉnh độ mờ ảnh nền trong khoảng 0.0 đến 1.0."""
 
         self.ui.watermark_label.set_opacity(opacity)
-
-    def set_watermark_image(self, image_path: str):
-        """Cho phép thay ảnh nền mà không cần khởi động lại ứng dụng."""
-
-        full_path = self._find_image_path(image_path)
-
-        if not full_path:
-            logger.warning(
-                "Không tìm thấy ảnh nền mới: %s",
-                image_path,
-            )
-            return False
-
-        pixmap = QPixmap(full_path)
-
-        if pixmap.isNull():
-            logger.error(
-                "Không thể đọc ảnh nền mới: %s",
-                full_path,
-            )
-            return False
-
-        self.ui.watermark_label.set_watermark(pixmap)
-
-        logger.info("Đã thay ảnh nền: %s", full_path)
-        return True
