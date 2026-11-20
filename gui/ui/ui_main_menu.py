@@ -150,19 +150,19 @@ class Ui_MainMenuWindow(object):
             QPushButton#statsButton:pressed {{
                 background-color: #115E59;
             }}
-            QPushButton#modelButton {{
+            QPushButton#settingsButton {{
                 color: #FFFFFF;
                 background-color: #7C3AED;
                 border-color: #7C3AED;
             }}
-            QPushButton#modelButton:hover {{
+            QPushButton#settingsButton:hover {{
                 background-color: #6D28D9;
                 border-color: #6D28D9;
             }}
-            QPushButton#modelButton:pressed {{
+            QPushButton#settingsButton:pressed {{
                 background-color: #5B21B6;
             }}
-            QPushButton#modelButton:disabled {{
+            QPushButton#settingsButton:disabled {{
                 background-color: #C4B5FD;
                 border-color: #C4B5FD;
             }}
@@ -283,12 +283,12 @@ class Ui_MainMenuWindow(object):
         self.stats_button.setCursor(Qt.PointingHandCursor)
         buttons_layout.addWidget(self.stats_button)
 
-        # AI MODEL UPDATE BUTTON
-        self.model_button = QPushButton("CẬP NHẬT MODEL AI", button_container)
-        self.model_button.setObjectName("modelButton")
-        self.model_button.setMinimumSize(button_size)
-        self.model_button.setCursor(Qt.PointingHandCursor)
-        buttons_layout.addWidget(self.model_button)
+        # SETTINGS BUTTON
+        self.settings_button = QPushButton("CÀI ĐẶT", button_container)
+        self.settings_button.setObjectName("settingsButton")
+        self.settings_button.setMinimumSize(button_size)
+        self.settings_button.setCursor(Qt.PointingHandCursor)
+        buttons_layout.addWidget(self.settings_button)
 
         # EXIT BUTTON
         self.exit_button = QPushButton("ĐÓNG ỨNG DỤNG", button_container)
